@@ -6,10 +6,10 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
 @MapperScan("com.ykx.backend.mapper")
-public class YiPictureBackendApplication {
+public class QandAApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(YiPictureBackendApplication.class, args);
+        SpringApplication.run(QandAApplication.class, args);
     }
 
 }

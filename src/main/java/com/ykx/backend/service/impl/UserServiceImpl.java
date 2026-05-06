@@ -13,11 +13,11 @@ import com.ykx.backend.model.entity.User;
 import com.ykx.backend.model.vo.UserVO;
 import com.ykx.backend.service.UserService;
 import com.ykx.backend.mapper.UserMapper;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
-import javax.annotation.Resource;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
