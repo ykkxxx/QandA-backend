@@ -1,46 +1,51 @@
-server:
-  port: 8123
-  servlet:
-    context-path: /api
-spring:
-  application:
-    name: projectTest
-  # 数据源配置
-  datasource:
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/qanda
-    username: root
-    password: 123456
-  # ===== 新增Redis配置 =====
-  redis:
-    # Redis服务器地址（本地填localhost/127.0.0.1，远程填实际IP）
-    host: localhost
-    # Redis端口（默认6379，若你修改过Redis端口需对应修改）
-    port: 6379
-    # Redis密码（若你的Redis未设置密码，保留空值即可；设置过则填实际密码）
-    password: 123456
-    # Redis数据库索引（默认0，无需修改，不同数据库可用于隔离不同业务数据）
-    database: 0
-    # 连接超时时间（毫秒），避免连接等待过久
-    timeout: 10000ms
-    # lettuce连接池配置（Spring Boot 2.x默认用lettuce，推荐配置连接池提升性能）
-    lettuce:
-      pool:
-        # 连接池最大活跃连接数（默认8，根据业务调整）
-        max-active: 8
-        # 连接池最大空闲连接数（默认8）
-        max-idle: 8
-        # 连接池最小空闲连接数（默认0）
-        min-idle: 0
-        # 连接池最大等待时间（毫秒），-1表示无限制
-        max-wait: -1ms
-mybatis-plus:
-  configuration:
-    map-underscore-to-camel-case: false
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
-  global-config:
-    enable-sql-runner: true
-    db-config:
-      logic-delete-field: is_delete
-      logic-delete-value: 1
-      logic-not-delete-value: 0
+  app:
+    admin:
+      # 管理接口（封禁/黑名单）请求头 X-Admin-Token，生产环境务必修改
+      token: change-me-admin-token
+
+  server:
+    port: 8123
+    servlet:
+      context-path: /api
+  spring:
+    application:
+      name: projectTest
+    # 数据源配置
+    datasource:
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      url: jdbc:mysql://localhost:3306/qanda
+      username: root
+      password: 123456
+    # ===== 新增Redis配置 =====
+    redis:
+      # Redis服务器地址（本地填localhost/127.0.0.1，远程填实际IP）
+      host: localhost
+      # Redis端口（默认6379，若你修改过Redis端口需对应修改）
+      port: 6379
+      # Redis密码（若你的Redis未设置密码，保留空值即可；设置过则填实际密码）
+      password:
+      # Redis数据库索引（默认0，无需修改，不同数据库可用于隔离不同业务数据）
+      database: 1
+      # 连接超时时间（毫秒），避免连接等待过久
+      timeout: 10000ms
+      # lettuce连接池配置（Spring Boot 2.x默认用lettuce，推荐配置连接池提升性能）
+      lettuce:
+        pool:
+          # 连接池最大活跃连接数（默认8，根据业务调整）
+          max-active: 8
+          # 连接池最大空闲连接数（默认8）
+          max-idle: 8
+          # 连接池最小空闲连接数（默认0）
+          min-idle: 0
+          # 连接池最大等待时间（毫秒），-1表示无限制
+          max-wait: -1ms
+  mybatis-plus:
+    configuration:
+      map-underscore-to-camel-case: false
+      log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    global-config:
+      enable-sql-runner: true
+      db-config:
+        logic-delete-field: is_delete
+        logic-delete-value: 1
+        logic-not-delete-value: 0

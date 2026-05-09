@@ -43,7 +43,7 @@ public class Users {
     private String password_hash;
 
     /**
-     * 状态 0-正常 1-禁用
+     * 状态：1-正常，0-封禁（与注册默认一致）
      */
     private Integer status;
 

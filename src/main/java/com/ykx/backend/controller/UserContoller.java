@@ -4,16 +4,20 @@ import cn.hutool.core.util.StrUtil;
 import com.ykx.backend.common.BaseResponse;
 import com.ykx.backend.exception.BusinessException;
 import com.ykx.backend.exception.ErrorCode;
+import com.ykx.backend.model.dto.SsoExchangeDTO;
 import com.ykx.backend.model.dto.UsersLoginDTO;
 import com.ykx.backend.model.dto.UsersRegisterDTO;
 import com.ykx.backend.model.dto.UsersUpdateDTO;
 import com.ykx.backend.model.vo.LoginData;
+import com.ykx.backend.model.vo.user.SsoCodeVO;
 import com.ykx.backend.model.vo.user.UsersInfoVO;
 import com.ykx.backend.model.vo.user.UsersLoginVO;
 import com.ykx.backend.model.vo.user.UsersRegisterVO;
 import com.ykx.backend.model.vo.user.UsersUpdateVO;
+import com.ykx.backend.common.ClientIpUtils;
 import com.ykx.backend.service.UsersService;
 import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletRequest;
 import org.apache.ibatis.jdbc.Null;
 import org.springframework.web.bind.annotation.*;
 
@@ -27,21 +31,21 @@ public class UserContoller {
      * 用户登录
      */
     @PostMapping("/login")
-    public BaseResponse<LoginData<UsersLoginVO>> login(@RequestBody UsersLoginDTO loginDTO) {
+    public BaseResponse<LoginData<UsersLoginVO>> login(HttpServletRequest request, @RequestBody UsersLoginDTO loginDTO) {
         if (loginDTO == null || StrUtil.isBlank(loginDTO.getUsername()) || StrUtil.isBlank(loginDTO.getPassword())) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "参数不能为空");
         }
-        return usersService.login(loginDTO);
+        return usersService.login(loginDTO, ClientIpUtils.resolve(request));
     }
     /**
      * 用户注册
      */
     @PostMapping("/register")
-    public BaseResponse<UsersRegisterVO> register(@RequestBody UsersRegisterDTO registerDTO) {
+    public BaseResponse<UsersRegisterVO> register(HttpServletRequest request, @RequestBody UsersRegisterDTO registerDTO) {
         if (registerDTO == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        return usersService.register(registerDTO);
+        return usersService.register(registerDTO, ClientIpUtils.resolve(request));
     }
 
     /**
@@ -53,6 +57,25 @@ public class UserContoller {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
         return usersService.refreshToken(refreshToken);
+    }
+
+    /**
+     * 站点 A 已登录后调用，生成一次性 SSO 票据（需在 Authorization 中带 Bearer access_token）
+     */
+    @PostMapping("/sso/code")
+    public BaseResponse<SsoCodeVO> createSsoCode() {
+        return usersService.createSsoBridgeCode();
+    }
+
+    /**
+     * 站点 B 携带票据换取与本站登录相同结构的 token（无需 Authorization）
+     */
+    @PostMapping("/sso/exchange")
+    public BaseResponse<LoginData<UsersLoginVO>> exchangeSso(@RequestBody SsoExchangeDTO dto) {
+        if (dto == null || StrUtil.isBlank(dto.getCode())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "code 不能为空");
+        }
+        return usersService.exchangeSsoCode(dto.getCode());
     }
 
     // ======================== 用户信息 ========================

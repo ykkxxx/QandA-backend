@@ -4,7 +4,7 @@ CREATE TABLE users (
                        email          VARCHAR(191)   NOT NULL     UNIQUE COMMENT '邮箱',
                        telephone      VARCHAR(20)    UNIQUE       COMMENT '手机号',
                        password_hash  VARCHAR(255)   NOT NULL     COMMENT '加密密码',
-                       status         TINYINT        NOT NULL     DEFAULT 0 COMMENT '状态 0-正常 1-禁用',
+                       status         TINYINT        NOT NULL     DEFAULT 1 COMMENT '状态 1-正常 0-封禁（与后端 UserStatusConstants 一致）',
                        gender         TINYINT                   NULL COMMENT '性别 0-未知 1-男 2-女',
                        bio            TEXT                      NULL COMMENT '个人简介',
                        avatar         VARCHAR(255)              NULL COMMENT '头像地址',

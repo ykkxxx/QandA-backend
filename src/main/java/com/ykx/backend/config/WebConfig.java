@@ -1,5 +1,6 @@
 package com.ykx.backend.config;
 
+import com.ykx.backend.intercepter.AdminTokenInterceptor;
 import com.ykx.backend.intercepter.AuthInterceptor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -9,19 +10,27 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class WebConfig implements WebMvcConfigurer {
 
     private final AuthInterceptor authInterceptor;
+    private final AdminTokenInterceptor adminTokenInterceptor;
 
-    public WebConfig(AuthInterceptor authInterceptor) {
+    public WebConfig(AuthInterceptor authInterceptor, AdminTokenInterceptor adminTokenInterceptor) {
         this.authInterceptor = authInterceptor;
+        this.adminTokenInterceptor = adminTokenInterceptor;
     }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(adminTokenInterceptor)
+                .addPathPatterns("/admin/**");
+
         registry.addInterceptor(authInterceptor)
-                .addPathPatterns("/api/**")          // 对所有接口生效
+                .addPathPatterns("/**")
                 .excludePathPatterns(
-                        "/api/user/login",           // 登录放行
-                        "/api/user/register",        // 注册放行
-                        "/api/user/refresh"          //刷新token
+                        "/user/login",
+                        "/user/register",
+                        "/user/refresh",
+                        "/user/sso/exchange",
+                        "/admin/**",
+                        "/health"
                 );
     }
 }
