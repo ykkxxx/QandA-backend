@@ -12,14 +12,22 @@ public class CorsConfig implements WebMvcConfigurer {
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
-        // 覆盖所有请求
+        // 1. 覆盖所有请求接口
         registry.addMapping("/**")
-                // 允许发送 Cookie
+
+                // 2. 允许前端携带 Cookie / Token 凭证
                 .allowCredentials(true)
-                // 放行哪些域名（必须用 patterns，否则 * 会和 allowCredentials 冲突）
+
+                // 3. 允许所有域名访问（解决跨域最关键）
                 .allowedOriginPatterns("*")
+
+                // 4. 允许哪些请求方法
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+
+                // 5. 允许前端携带任何请求头
                 .allowedHeaders("*")
+
+                // 6. 允许前端拿到后端返回的所有响应头
                 .exposedHeaders("*");
     }
 }

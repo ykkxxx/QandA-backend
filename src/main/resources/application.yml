@@ -8,7 +8,7 @@ spring:
   # 数据源配置
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/projecttest
+    url: jdbc:mysql://localhost:3306/qanda
     username: root
     password: 123456
   # ===== 新增Redis配置 =====
@@ -36,21 +36,11 @@ spring:
         max-wait: -1ms
 mybatis-plus:
   configuration:
-    map-underscore-to-camel-case: true
+    map-underscore-to-camel-case: false
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
   global-config:
     enable-sql-runner: true
     db-config:
-      logic-delete-field: isDelete
+      logic-delete-field: is_delete
       logic-delete-value: 1
       logic-not-delete-value: 0
-knife4j:
-  enable: true
-  openapi:
-    title: 接口文档
-    version: 1.0
-    group:
-      default:
-        api-rule: package
-        api-rule-resources:
-          - com.ykx.backend.controller
