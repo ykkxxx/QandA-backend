@@ -1,7 +1,7 @@
-package com.ykx.backend.config;
-
 import com.ykx.backend.intercepter.AdminTokenInterceptor;
 import com.ykx.backend.intercepter.AuthInterceptor;
+import jakarta.annotation.Resource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
@@ -9,28 +9,21 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
-    private final AuthInterceptor authInterceptor;
-    private final AdminTokenInterceptor adminTokenInterceptor;
+    @Resource
+    private AuthInterceptor authInterceptor;
 
-    public WebConfig(AuthInterceptor authInterceptor, AdminTokenInterceptor adminTokenInterceptor) {
-        this.authInterceptor = authInterceptor;
-        this.adminTokenInterceptor = adminTokenInterceptor;
-    }
+    @Resource
+    private AdminTokenInterceptor adminTokenInterceptor;
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        // 管理员拦截器只拦截 admin 相关接口
         registry.addInterceptor(adminTokenInterceptor)
-                .addPathPatterns("/admin/**");
+                .addPathPatterns("/api/admin/**", "/api/blacklist/**");
 
+        // 用户认证拦截器拦截其他接口，放行 admin 相关接口
         registry.addInterceptor(authInterceptor)
-                .addPathPatterns("/**")
-                .excludePathPatterns(
-                        "/user/login",
-                        "/user/register",
-                        "/user/refresh",
-                        "/user/sso/exchange",
-                        "/admin/**",
-                        "/health"
-                );
+                .addPathPatterns("/api/**")
+                .excludePathPatterns("/api/admin/**", "/api/blacklist/**", "/api/login", "/api/register");
     }
 }

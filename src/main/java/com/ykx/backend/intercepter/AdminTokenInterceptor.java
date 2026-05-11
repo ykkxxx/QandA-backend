@@ -20,7 +20,19 @@ public class AdminTokenInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            return true;
+        }
         String token = request.getHeader(HEADER_NAME);
+        String configuredToken = adminProperties.getToken();
+
+        // 添加调试日志
+        System.out.println("=== 调试信息 ===");
+        System.out.println("adminProperties 对象: " + adminProperties);
+        System.out.println("配置的 token: [" + configuredToken + "]");
+        System.out.println("配置的 token 长度: " + (configuredToken == null ? "null" : configuredToken.length()));
+        System.out.println("请求头 token: [" + token + "]");
+        System.out.println("=================");
         if (StrUtil.isBlank(adminProperties.getToken()) || !adminProperties.getToken().equals(token)) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无效的管理员凭证");
         }
