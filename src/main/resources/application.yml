@@ -2,6 +2,9 @@
     admin:
       # 管理接口（封禁/黑名单）请求头 X-Admin-Token，生产环境务必修改
       token: change-me-admin-token
+    upload:
+      avatar-dir: uploads/avatars
+      max-avatar-bytes: 2097152
 
   server:
     port: 8123
@@ -10,6 +13,10 @@
   spring:
     application:
       name: projectTest
+    servlet:
+      multipart:
+        max-file-size: 3MB
+        max-request-size: 5MB
     # 数据源配置
     datasource:
       driver-class-name: com.mysql.cj.jdbc.Driver

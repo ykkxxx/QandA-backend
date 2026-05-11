@@ -2,6 +2,7 @@ package com.ykx.backend.service.impl;
 
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.SecureUtil;
@@ -28,14 +29,25 @@ import com.ykx.backend.model.vo.user.UsersUpdateVO;
 import com.ykx.backend.service.BlacklistService;
 import com.ykx.backend.service.UsersService;
 import com.ykx.backend.mapper.UsersMapper;
+import com.ykx.backend.config.UploadProperties;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.apache.ibatis.jdbc.Null;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 
@@ -69,7 +81,14 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
     @Resource
     private BlacklistService blacklistService;
 
-    // 你的 JWT 密钥（和业务代码一致）
+    @Resource
+    private UploadProperties uploadProperties;
+
+    /** 与 application.yml 中 server.servlet.context-path 一致，用于拼接浏览器可访问的头像 URL */
+    @Value("${server.servlet.context-path:}")
+    private String servletContextPath;
+
+    private static final Set<String> AVATAR_ALLOWED_EXT = Set.of("jpg", "jpeg", "png", "gif", "webp");
     private static final String JWT_SECRET = "Ykx_JWT_Secret_2025_123456789";
 
     @Override
@@ -269,6 +288,7 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
         if (StrUtil.isNotBlank(cacheStr)) {
             // 将JSON字符串转为实体VO
             UsersInfoVO cacheVO = JSONUtil.toBean(cacheStr, UsersInfoVO.class);
+            cacheVO.setAvatar(toClientAvatarUrl(cacheVO.getAvatar()));
             // 缓存命中，直接返回，无需查询数据库
             return ResultUtils.success(cacheVO);
         }
@@ -283,6 +303,7 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
         // 6.数据库查询成功，封装为脱敏VO（防止敏感字段外泄）
         UsersInfoVO usersInfoVO = new UsersInfoVO();
         BeanUtil.copyProperties(user, usersInfoVO);
+        usersInfoVO.setAvatar(toClientAvatarUrl(usersInfoVO.getAvatar()));
 
         try {
             // 7.将用户信息写入Redis缓存，过期时间15分钟
@@ -297,7 +318,10 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
     }
 
     @Override
-    public BaseResponse<UsersUpdateVO> update(UsersUpdateDTO updateDTO) {
+    public BaseResponse<UsersUpdateVO> update(UsersUpdateDTO updateDTO, MultipartFile avatarFile) {
+        if (updateDTO == null) {
+            updateDTO = new UsersUpdateDTO();
+        }
         // 3. 从 token 拿 userId（核心！不能用前端传的 id）
         String userId = UserContext.getUserId();
         if (StrUtil.isBlank(userId)) {
@@ -310,20 +334,106 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "用户不存在");
         }
 
-        // 5. 安全更新：只赋值允许修改的字段，不整体拷贝
-        existUser.setEmail(updateDTO.getEmail());
-        existUser.setTelephone(updateDTO.getTelephone());
-        // existUser.setNickname(updateDTO.getNickname()); 你需要啥加啥
+        Path avatarRoot = Paths.get(uploadProperties.getAvatarDir()).toAbsolutePath().normalize();
+        String oldAvatarToDelete = null;
+        Path newlyWrittenAvatarPath = null;
+
+        // 5. 安全更新：仅处理 DTO 中非 null 字段（null 表示本次不修改）
+        if (StrUtil.isNotBlank(updateDTO.getUsername())) {
+            String newUsername = updateDTO.getUsername().trim();
+            if (!newUsername.equals(existUser.getUsername())) {
+                if (!newUsername.matches("^[a-zA-Z0-9_]{3,20}$")) {
+                    throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户名格式错误：3-20位，仅允许字母、数字、下划线");
+                }
+                LambdaQueryWrapper<Users> usernameTaken = new LambdaQueryWrapper<>();
+                usernameTaken.eq(Users::getUsername, newUsername).ne(Users::getUuid, userId);
+                if (this.count(usernameTaken) > 0) {
+                    throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户名已被占用");
+                }
+                existUser.setUsername(newUsername);
+            }
+        }
+        if (updateDTO.getEmail() != null) {
+            existUser.setEmail(StrUtil.trim(updateDTO.getEmail()));
+        }
+        if (updateDTO.getTelephone() != null) {
+            existUser.setTelephone(StrUtil.trim(updateDTO.getTelephone()));
+        }
+        if (updateDTO.getGender() != null) {
+            int g = updateDTO.getGender();
+            if (g < 0 || g > 2) {
+                throw new BusinessException(ErrorCode.PARAMS_ERROR, "性别参数无效：仅支持 0-未知 1-男 2-女");
+            }
+            existUser.setGender(g);
+        }
+        if (updateDTO.getBio() != null) {
+            existUser.setBio(updateDTO.getBio());
+        }
+
+        if (avatarFile != null && !avatarFile.isEmpty()) {
+            long maxBytes = uploadProperties.getMaxAvatarBytes();
+            if (maxBytes > 0 && avatarFile.getSize() > maxBytes) {
+                throw new BusinessException(ErrorCode.PARAMS_ERROR, "头像文件过大");
+            }
+            String ext = StrUtil.blankToDefault(FileUtil.extName(avatarFile.getOriginalFilename()), "").toLowerCase(Locale.ROOT);
+            if (!AVATAR_ALLOWED_EXT.contains(ext)) {
+                throw new BusinessException(ErrorCode.PARAMS_ERROR, "仅支持 jpg、jpeg、png、gif、webp 图片");
+            }
+            String contentType = avatarFile.getContentType();
+            if (StrUtil.isNotBlank(contentType) && !contentType.toLowerCase(Locale.ROOT).startsWith("image/")) {
+                throw new BusinessException(ErrorCode.PARAMS_ERROR, "文件类型必须是图片");
+            }
+            try {
+                Files.createDirectories(avatarRoot);
+            } catch (Exception e) {
+                log.warn("创建头像目录失败: {}", e.getMessage());
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "头像存储目录不可用");
+            }
+            String storedName = IdUtil.fastSimpleUUID() + "." + ext;
+            Path target = avatarRoot.resolve(storedName).normalize();
+            if (!target.startsWith(avatarRoot)) {
+                throw new BusinessException(ErrorCode.PARAMS_ERROR, "非法文件名");
+            }
+            try (InputStream in = avatarFile.getInputStream()) {
+                Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+            } catch (Exception e) {
+                log.warn("保存头像失败: {}", e.getMessage());
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "头像保存失败");
+            }
+            oldAvatarToDelete = existUser.getAvatar();
+            existUser.setAvatar(publicUploadedAvatarPath(storedName));
+            newlyWrittenAvatarPath = target;
+        } else if (updateDTO.getAvatar() != null) {
+            existUser.setAvatar(StrUtil.trim(updateDTO.getAvatar()));
+        }
 
         // 6. 更新数据库
         boolean updateSuccess = updateById(existUser);
         if (!updateSuccess) {
+            if (newlyWrittenAvatarPath != null) {
+                try {
+                    Files.deleteIfExists(newlyWrittenAvatarPath);
+                } catch (Exception ignore) {
+                    log.warn("回滚删除新头像文件失败");
+                }
+            }
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "更新失败");
+        }
+
+        if (avatarFile != null && !avatarFile.isEmpty()) {
+            deleteStoredAvatarIfUnderUpload(oldAvatarToDelete, avatarRoot);
+        }
+
+        try {
+            stringRedisTemplate.delete("user:info:" + userId);
+        } catch (Exception e) {
+            log.warn("清除用户信息缓存失败: {}", e.getMessage());
         }
 
         // 7. 转 VO 返回
         UsersUpdateVO updateVO = new UsersUpdateVO();
         BeanUtil.copyProperties(existUser, updateVO);
+        updateVO.setAvatar(toClientAvatarUrl(updateVO.getAvatar()));
 
         return ResultUtils.success(updateVO);
     }
@@ -423,6 +533,87 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
         return ResultUtils.success(loginData);
     }
 
+    private void deleteStoredAvatarIfUnderUpload(String avatarUrl, Path avatarRoot) {
+        String name = extractUploadedAvatarFileName(avatarUrl);
+        if (name == null) {
+            return;
+        }
+        try {
+            Path p = avatarRoot.resolve(name).normalize();
+            if (p.startsWith(avatarRoot)) {
+                Files.deleteIfExists(p);
+            }
+        } catch (Exception e) {
+            log.warn("删除旧头像文件失败: {}", e.getMessage());
+        }
+    }
+
+    /** 去掉尾部斜杠；空或 "/" 视为无前缀 */
+    private String normalizedContextPath() {
+        String cp = servletContextPath == null ? "" : servletContextPath.trim();
+        if (cp.isEmpty() || "/".equals(cp)) {
+            return "";
+        }
+        if (cp.endsWith("/")) {
+            return cp.substring(0, cp.length() - 1);
+        }
+        return cp;
+    }
+
+    /** 写入数据库的本站头像路径（含 context-path，便于前端直接拼同源 URL） */
+    private String publicUploadedAvatarPath(String storedFileName) {
+        return normalizedContextPath() + "/files/avatars/" + storedFileName;
+    }
+
+    /**
+     * 返回给前端的头像地址：本站相对路径会补上 context-path；
+     * 历史数据若仅存 /files/avatars/xxx 也会自动补上 /api 等前缀。
+     */
+    private String toClientAvatarUrl(String raw) {
+        if (StrUtil.isBlank(raw)) {
+            return raw;
+        }
+        String t = raw.trim();
+        if (t.startsWith("http://") || t.startsWith("https://")) {
+            return t;
+        }
+        String ctx = normalizedContextPath();
+        String uploadPrefix = "/files/avatars/";
+        if (ctx.isEmpty()) {
+            return t;
+        }
+        if (t.startsWith(ctx + uploadPrefix)) {
+            return t;
+        }
+        if (t.startsWith(uploadPrefix)) {
+            return ctx + t;
+        }
+        return t;
+    }
+
+    /** 从本站头像 URL 解析出磁盘文件名；无法识别则返回 null */
+    private String extractUploadedAvatarFileName(String avatarUrl) {
+        if (StrUtil.isBlank(avatarUrl)) {
+            return null;
+        }
+        String ctx = normalizedContextPath();
+        String withCtx = ctx + "/files/avatars/";
+        if (StrUtil.isNotBlank(ctx) && avatarUrl.startsWith(withCtx)) {
+            return safeAvatarFileName(avatarUrl.substring(withCtx.length()));
+        }
+        if (avatarUrl.startsWith("/files/avatars/")) {
+            return safeAvatarFileName(avatarUrl.substring("/files/avatars/".length()));
+        }
+        return null;
+    }
+
+    private String safeAvatarFileName(String name) {
+        if (name.isEmpty() || name.contains("..") || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0) {
+            return null;
+        }
+        return name;
+    }
+
     private void bindLatestAccessToken(String userId, String accessToken) {
         if (StrUtil.isBlank(userId) || StrUtil.isBlank(accessToken)) {
             return;
@@ -466,6 +657,7 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
         refreshPayload.put("exp", System.currentTimeMillis() / 1000 + REFRESH_EXPIRE);
         String refreshToken = JWTUtil.createToken(refreshPayload, JWT_SECRET.getBytes());
         UsersLoginVO usersVO = BeanUtil.copyProperties(user, UsersLoginVO.class);
+        usersVO.setAvatar(toClientAvatarUrl(user.getAvatar()));
         LoginData<UsersLoginVO> loginData = new LoginData<>();
         loginData.setAccess_token(accessToken);
         loginData.setRefresh_token(refreshToken);

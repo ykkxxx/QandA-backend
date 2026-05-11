@@ -19,7 +19,9 @@ import com.ykx.backend.service.UsersService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.ibatis.jdbc.Null;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/user")
@@ -89,16 +91,29 @@ public class UserContoller {
     }
 
     /**
-     * 更新用户资料
+     * 更新用户资料（JSON，不含文件头像）
      */
-    @PostMapping("/update")
-    public BaseResponse<UsersUpdateVO> updateUser(
-            @RequestBody UsersUpdateDTO updateDTO
-    ) {
+    @PostMapping(value = "/update", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public BaseResponse<UsersUpdateVO> updateUserJson(@RequestBody UsersUpdateDTO updateDTO) {
         if (updateDTO == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        return usersService.update(updateDTO);
+        return usersService.update(updateDTO, null);
+    }
+
+    /**
+     * 更新用户资料（multipart）：表单字段与 {@link UsersUpdateDTO} 同名即可绑定；
+     * 本地头像文件字段名 {@code file} 或 {@code avatarFile}（二选一，可选）。
+     */
+    @PostMapping(value = "/update", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public BaseResponse<UsersUpdateVO> updateUserMultipart(
+            @ModelAttribute UsersUpdateDTO updateDTO,
+            @RequestParam(value = "file", required = false) MultipartFile file,
+            @RequestParam(value = "avatarFile", required = false) MultipartFile avatarFile
+    ) {
+        UsersUpdateDTO dto = updateDTO != null ? updateDTO : new UsersUpdateDTO();
+        MultipartFile pic = file != null && !file.isEmpty() ? file : avatarFile;
+        return usersService.update(dto, pic);
     }
 
     /**
