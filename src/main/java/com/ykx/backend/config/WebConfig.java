@@ -25,17 +25,20 @@ public class WebConfig implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        // context-path 为 /api 时，此处匹配的是去掉 context-path 后的路径（如 /user/info），不要再写 /api 前缀
+
+        // 1. 管理员拦截器（只管后台）
         registry.addInterceptor(adminTokenInterceptor)
                 .addPathPatterns("/admin/security/**");
 
+        // 2. 登录拦截器（只拦截需要登录的接口）
         registry.addInterceptor(authInterceptor)
-                .addPathPatterns("/**")
+                .addPathPatterns(
+                        "/user/**",
+                        "/session/**",
+                        "/message/**"
+
+                )
                 .excludePathPatterns(
-                        "/admin/security/**",
-                        "/health",
-                        "/login",
-                        "/register",
                         "/user/login",
                         "/user/register",
                         "/user/refresh",

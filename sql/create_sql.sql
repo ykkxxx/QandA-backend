@@ -14,3 +14,28 @@ CREATE TABLE users (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户表';
 CREATE INDEX idx_users_username ON users(username);
 CREATE INDEX idx_users_status ON users(status);
+
+CREATE TABLE `chat_sessions` (
+                                 `id` VARCHAR(64) NOT NULL,
+                                 `user_id` VARCHAR(64) NOT NULL,
+                                 `title` VARCHAR(255) DEFAULT '新的对话',
+                                 `metadata` JSON NULL,
+                                 `created_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                                 `updated_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+                                 PRIMARY KEY (`id`),
+                                 KEY `idx_chat_sessions_user_id` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `chat_messages` (
+                                 `id` BIGINT NOT NULL AUTO_INCREMENT,
+                                 `session_id` VARCHAR(64) NOT NULL,
+                                 `role` VARCHAR(32) NOT NULL,
+                                 `content` TEXT NOT NULL,
+                                 `metadata` JSON NULL,
+                                 `created_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                                 PRIMARY KEY (`id`),
+                                 KEY `idx_chat_messages_session_id` (`session_id`),
+                                 CONSTRAINT `fk_chat_messages_session_id`
+                                     FOREIGN KEY (`session_id`) REFERENCES `chat_sessions` (`id`)
+                                         ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
