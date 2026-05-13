@@ -6,9 +6,10 @@ import java.util.Date;
 
 @Data
 public class UsersRegisterVO {
-    // 用户信息
     private String uuid;
     private String username;
     private String email;
     private Date date_joined;
+    /** 权限：0-普通用户 1-管理员 */
+    private Integer role;
 }

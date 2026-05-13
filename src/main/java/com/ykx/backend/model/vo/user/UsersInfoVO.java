@@ -52,6 +52,11 @@ public class UsersInfoVO {
     private String bio;
 
     /**
+     * 权限：0-普通用户 1-管理员（与 {@link com.ykx.backend.common.UserRoleConstants} 一致）
+     */
+    private Integer role;
+
+    /**
      * 头像地址
      */
     private String avatar;

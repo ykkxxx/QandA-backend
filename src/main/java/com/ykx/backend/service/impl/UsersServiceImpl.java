@@ -13,6 +13,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.ykx.backend.common.BaseResponse;
 import com.ykx.backend.common.ResultUtils;
 import com.ykx.backend.common.UserContext;
+import com.ykx.backend.common.UserRoleConstants;
 import com.ykx.backend.common.UserStatusConstants;
 import com.ykx.backend.exception.BusinessException;
 import com.ykx.backend.exception.ErrorCode;
@@ -195,6 +196,7 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
         user.setEmail(usersRegisterVODTO.getEmail());
         user.setTelephone(usersRegisterVODTO.getTelephone());
         user.setStatus(UserStatusConstants.NORMAL);
+        user.setRole(UserRoleConstants.USER);
         user.setDate_joined(new Date());
         // 7. 入库
         boolean saveResult = this.save(user);
@@ -251,6 +253,7 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
         Map<String, Object> payload = new HashMap<>();
         payload.put("userId", userId);
         payload.put("username", username);
+        payload.put("role", sessionUser.getRole() != null ? sessionUser.getRole() : UserRoleConstants.USER);
         payload.put("exp", System.currentTimeMillis() / 1000 + ACCESS_EXPIRE);
         String newAccessToken = JWTUtil.createToken(payload, JWT_SECRET.getBytes());
         bindLatestAccessToken(userId, newAccessToken);
@@ -650,6 +653,7 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
         Map<String, Object> commonPayload = new HashMap<>();
         commonPayload.put("userId", user.getUuid());
         commonPayload.put("username", user.getUsername());
+        commonPayload.put("role", user.getRole() != null ? user.getRole() : UserRoleConstants.USER);
         Map<String, Object> accessPayload = new HashMap<>(commonPayload);
         accessPayload.put("exp", System.currentTimeMillis() / 1000 + ACCESS_EXPIRE);
         String accessToken = JWTUtil.createToken(accessPayload, JWT_SECRET.getBytes());

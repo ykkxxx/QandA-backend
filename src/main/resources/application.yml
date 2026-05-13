@@ -1,3 +1,39 @@
+# 向量库全局配置
+vector:
+  # Milvus向量库配置
+  milvus:
+    database: my_rag
+    host: localhost
+    port: 19530
+    username: root
+    password:
+    collection: kb_default
+    dimension: 1536  # 须与嵌入模型一致（百炼 text-embedding-v4 为 1536）
+    timeout-ms: 10000
+  # 文本切片配置（完全不变）
+  chunk:
+    size: 200
+    overlap: 20
+  # 嵌入：百炼「原生」HTTP（推荐国内）见 api-url；OpenAI 兼容见下方注释。
+  # 原生路径：input 为 {"texts":[...]}，与 compatible-mode 的 OpenAI 格式不同。
+  embedding:
+    model: text-embedding-v4
+    api-key: sk-8de44d85eea24ebe99872753b5c4ef44
+    api-url: https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding
+# RAG：向量粗召 →（可选）L2 过滤 → 重排精排 → 上下文拼接
+# 向量距离过滤示例：rag.vector.max-l2-distance: 2.0
+rag:
+  retrieval:
+    initial-top-k: 20
+  rerank:
+    enabled: true
+    model: gte-rerank-v2
+    api-url: https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank
+    # api-key 留空则复用 vector.embedding.api-key
+    min-relevance-score: 0.25
+    final-top-k: 5
+  prompt:
+    max-context-chars: 8000
 app:
   admin:
     # 管理接口（封禁/黑名单）请求头 X-Admin-Token，生产环境务必修改
@@ -5,6 +41,12 @@ app:
   upload:
     avatar-dir: uploads/avatars
     max-avatar-bytes: 2097152
+  chat:
+    # 每用户每分钟：发送聊天、文档入库（Redisson 限流）
+    rate-per-minute: 30
+    document-rate-per-minute: 8
+    document-upload-dir: uploads/kb-docs
+    document-max-bytes: 10485760
 # AI大模型配置
 deepseek:
   api-key: sk-de605da0c0fd4f1595733b7cdaf91938
@@ -17,10 +59,15 @@ server:
 spring:
   application:
     name: projectTest
+  mvc:
+    # 关闭后 multipart 文件上传更稳定（避免 FormContentFilter 与 multipart 解析顺序问题）
+    formcontent:
+      filter:
+        enabled: false
   servlet:
     multipart:
-      max-file-size: 3MB
-      max-request-size: 5MB
+      max-file-size: 12MB
+      max-request-size: 15MB
   # 数据源配置
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver

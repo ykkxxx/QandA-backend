@@ -13,6 +13,7 @@
             <result property="status" column="status" />
             <result property="gender" column="gender" />
             <result property="bio" column="bio" />
+            <result property="role" column="role" />
             <result property="avatar" column="avatar" />
             <result property="date_joined" column="date_joined" />
             <result property="last_login" column="last_login" />
@@ -21,7 +22,7 @@
 
     <sql id="Base_Column_List">
         uuid,username,email,telephone,password_hash,status,
-        gender,bio,avatar,date_joined,last_login,
+        gender,bio,role,avatar,date_joined,last_login,
         is_delete
     </sql>
 </mapper>

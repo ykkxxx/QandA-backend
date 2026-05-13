@@ -52,6 +52,11 @@ public class UsersUpdateVO {
     private String avatar;
 
     /**
+     * 权限：0-普通用户 1-管理员
+     */
+    private Integer role;
+
+    /**
      * 注册时间
      */
     private Date date_joined;

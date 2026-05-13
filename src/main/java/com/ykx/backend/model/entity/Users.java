@@ -56,6 +56,10 @@ public class Users {
      * 个人简介
      */
     private String bio;
+    /**
+     * 权限：{@link com.ykx.backend.common.UserRoleConstants}
+     */
+    private Integer role;
 
     /**
      * 头像地址
@@ -100,6 +104,7 @@ public class Users {
             && (this.getStatus() == null ? other.getStatus() == null : this.getStatus().equals(other.getStatus()))
             && (this.getGender() == null ? other.getGender() == null : this.getGender().equals(other.getGender()))
             && (this.getBio() == null ? other.getBio() == null : this.getBio().equals(other.getBio()))
+            && (this.getRole() == null ? other.getRole() == null : this.getRole().equals(other.getRole()))
             && (this.getAvatar() == null ? other.getAvatar() == null : this.getAvatar().equals(other.getAvatar()))
             && (this.getDate_joined() == null ? other.getDate_joined() == null : this.getDate_joined().equals(other.getDate_joined()))
             && (this.getLast_login() == null ? other.getLast_login() == null : this.getLast_login().equals(other.getLast_login()))
@@ -118,6 +123,7 @@ public class Users {
         result = prime * result + ((getStatus() == null) ? 0 : getStatus().hashCode());
         result = prime * result + ((getGender() == null) ? 0 : getGender().hashCode());
         result = prime * result + ((getBio() == null) ? 0 : getBio().hashCode());
+        result = prime * result + ((getRole() == null) ? 0 : getRole().hashCode());
         result = prime * result + ((getAvatar() == null) ? 0 : getAvatar().hashCode());
         result = prime * result + ((getDate_joined() == null) ? 0 : getDate_joined().hashCode());
         result = prime * result + ((getLast_login() == null) ? 0 : getLast_login().hashCode());
@@ -139,6 +145,7 @@ public class Users {
         sb.append(", status=").append(status);
         sb.append(", gender=").append(gender);
         sb.append(", bio=").append(bio);
+        sb.append(", role=").append(role);
         sb.append(", avatar=").append(avatar);
         sb.append(", date_joined=").append(date_joined);
         sb.append(", last_login=").append(last_login);

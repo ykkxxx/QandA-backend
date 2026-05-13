@@ -2,6 +2,7 @@ package com.ykx.backend.config;
 
 import com.ykx.backend.intercepter.AdminTokenInterceptor;
 import com.ykx.backend.intercepter.AuthInterceptor;
+import com.ykx.backend.intercepter.ChatRateLimitInterceptor;
 import jakarta.annotation.Resource;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -23,6 +24,9 @@ public class WebConfig implements WebMvcConfigurer {
     @Resource
     private UploadProperties uploadProperties;
 
+    @Resource
+    private ChatRateLimitInterceptor chatRateLimitInterceptor;
+
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
 
@@ -35,8 +39,10 @@ public class WebConfig implements WebMvcConfigurer {
                 .addPathPatterns(
                         "/user/**",
                         "/session/**",
-                        "/message/**"
-
+                        "/message/**",
+                        "/vector/**",
+                        "/rag/**",
+                        "/chat/**"
                 )
                 .excludePathPatterns(
                         "/user/login",
@@ -44,7 +50,13 @@ public class WebConfig implements WebMvcConfigurer {
                         "/user/refresh",
                         "/user/sso/exchange",
                         "/files/**"
-                );
+                )
+                .order(1);
+
+        // 3. 聊天接口 Redisson 限流（须在登录之后，依赖 UserContext）
+        registry.addInterceptor(chatRateLimitInterceptor)
+                .addPathPatterns("/chat/send", "/chat/document")
+                .order(2);
     }
 
     @Override

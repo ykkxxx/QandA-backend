@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.jwt.JWTUtil;
 import com.ykx.backend.common.ClientIpUtils;
 import com.ykx.backend.common.UserContext;
+import com.ykx.backend.common.UserRoleConstants;
 import com.ykx.backend.common.UserStatusConstants;
 import com.ykx.backend.exception.BusinessException;
 import com.ykx.backend.exception.ErrorCode;
@@ -78,6 +79,9 @@ public class AuthInterceptor implements HandlerInterceptor {
         if (user == null || !UserStatusConstants.isNormal(user.getStatus())) {
             throw new BusinessException(ErrorCode.FORBIDDEN_ERROR, "该账号已被封禁，禁止访问");
         }
+
+        Integer role = user.getRole() != null ? user.getRole() : UserRoleConstants.USER;
+        UserContext.setRole(role);
 
         // 单点登录校验
 
