@@ -120,7 +120,16 @@ public class ChatServiceImpl implements ChatService {
         vo.setContent(aiAnswer);
         return ResultUtils.success(vo);
     }
-
+    ///**
+    // * 把聊天消息列表，拼接成一段连续的文本历史
+    // * 格式：
+    // * 用户：xxx
+    // * 助手：xxx
+    // * 用户：xxx
+    // * 助手：xxx
+    // *
+    // * 主要用来给大模型提供对话上下文
+    // */
     private static String buildHistoryBlock(List<ChatMessages> historyList) {
         if (historyList == null || historyList.isEmpty()) {
             return "（暂无历史消息）";
@@ -135,7 +144,7 @@ public class ChatServiceImpl implements ChatService {
         }
         return sb.toString().trim();
     }
-
+    //把【历史对话 + 检索到的知识库 + 用户当前问题】拼成一段完整的提示词，发给 AI 大模型！
     private String buildAgentPayload(String historyBlock, String query, String userId) {
         String ragBlock;
         try {

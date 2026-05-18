@@ -57,25 +57,6 @@ public class AdminSecurityController {
         securityAdminService.unblockIp(ip);
         return ResultUtils.success(null);
     }
-
-    @PostMapping("/blacklist/username")
-    public BaseResponse<Void> blockUsername(@RequestBody BlockUsernameDTO dto) {
-        if (dto == null || StrUtil.isBlank(dto.getUsername())) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "username 不能为空");
-        }
-        securityAdminService.blockUsername(dto.getUsername(), dto.getReason());
-        return ResultUtils.success(null);
-    }
-
-    @DeleteMapping("/blacklist/username")
-    public BaseResponse<Void> unblockUsername(@RequestParam String username) {
-        if (StrUtil.isBlank(username)) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "username 不能为空");
-        }
-        securityAdminService.unblockUsername(username);
-        return ResultUtils.success(null);
-    }
-
     @GetMapping("/blacklist")
     public BaseResponse<Page<AccessBlacklist>> listBlacklist(
             @RequestParam(defaultValue = "1") long page,

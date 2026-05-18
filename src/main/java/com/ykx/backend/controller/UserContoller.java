@@ -108,12 +108,10 @@ public class UserContoller {
     @PostMapping(value = "/update", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public BaseResponse<UsersUpdateVO> updateUserMultipart(
             @ModelAttribute UsersUpdateDTO updateDTO,
-            @RequestParam(value = "file", required = false) MultipartFile file,
             @RequestParam(value = "avatarFile", required = false) MultipartFile avatarFile
     ) {
         UsersUpdateDTO dto = updateDTO != null ? updateDTO : new UsersUpdateDTO();
-        MultipartFile pic = file != null && !file.isEmpty() ? file : avatarFile;
-        return usersService.update(dto, pic);
+        return usersService.update(dto, avatarFile);
     }
 
     /**

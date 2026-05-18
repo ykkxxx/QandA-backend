@@ -30,8 +30,17 @@ public class RagServiceImpl implements RagService {
     private final RagProperties ragProperties;
     private final VectorProperties vectorProperties;
 
+    /**
+     * 构建 RAG 上下文（核心方法：检索→过滤→重排→拼接）
+     * 作用：根据用户问题，从向量库召回相关知识片段，交给 AI 使用
+     *
+     * @param userId   当前用户ID
+     * @param question 用户问题
+     * @return 封装好的 RAG 上下文（片段、文本、提示词）
+     */
     @Override
     public RagContextVO buildContext(String userId, String question) {
+        // 1. 参数校验：userId 和问题不能为空
         if (!StringUtils.hasText(userId)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "userId 不能为空");
         }
@@ -39,11 +48,16 @@ public class RagServiceImpl implements RagService {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "问题不能为空");
         }
 
+        // 2. 获取初始召回数量（默认 20 条）
         int initialK = Math.max(1,
                 ragProperties.getRetrieval() != null
                         ? ragProperties.getRetrieval().getInitialTopK()
                         : 20);
+
+        // 3. 向量化检索：根据用户问题，从 Milvus 召回相关文本片段
         List<Map<String, Object>> hits = vectorService.search(userId, question.trim(), initialK);
+
+        // 4. 如果没检索到任何内容，打日志（方便排查：userId 不匹配是常见原因）
         if (hits.isEmpty()) {
             String db = vectorProperties.getMilvus() != null
                     ? vectorProperties.getMilvus().getDatabase()
@@ -58,6 +72,7 @@ public class RagServiceImpl implements RagService {
                     coll != null ? coll : "?");
         }
 
+        // 5. 向量距离过滤：根据 L2 距离过滤掉不相关的片段
         Double maxL2 = ragProperties.getVector() != null
                 ? ragProperties.getVector().getMaxL2Distance()
                 : null;
@@ -65,7 +80,9 @@ public class RagServiceImpl implements RagService {
             int before = hits.size();
             List<Map<String, Object>> filtered = new ArrayList<>();
             for (Map<String, Object> h : hits) {
+                // 提取向量距离 score
                 double d = extractVectorDistance(h);
+                // 只保留距离 <= 阈值的片段
                 if (d <= maxL2) {
                     filtered.add(h);
                 }
@@ -76,27 +93,38 @@ public class RagServiceImpl implements RagService {
             }
         }
 
+        // 6. 重排序（rerank）：把最相关的片段排到前面
         List<Map<String, Object>> ranked = reorderService.rerank(question.trim(), hits);
 
+        // 7. 数据标准化（防止原map被修改）
         List<Map<String, Object>> normalized = new ArrayList<>(ranked.size());
         for (Map<String, Object> row : ranked) {
             normalized.add(new HashMap<>(row));
         }
 
+        // 8. 获取最大上下文字符数（默认 8000）
         int maxChars = Math.max(500,
                 ragProperties.getPrompt() != null
                         ? ragProperties.getPrompt().getMaxContextChars()
                         : 8000);
+
+        // 9. 把检索到的片段拼接成一段文本（给AI看）
         String contextText = RagPromptBuilder.concatRetrievedChunks(normalized, maxChars);
+
+        // 10. 构建最终给大模型的用户提示词（问题+上下文）
         String llmUserContent = RagPromptBuilder.buildRagUserContent(question.trim(), contextText);
 
+        // 11. 封装返回结果
         RagContextVO vo = new RagContextVO();
-        vo.setChunks(normalized);
-        vo.setContextText(contextText);
-        vo.setLlmUserContent(llmUserContent);
+        vo.setChunks(normalized);          // 原始片段列表
+        vo.setContextText(contextText);    // 拼接后的上下文文本
+        vo.setLlmUserContent(llmUserContent); // 最终给LLM的提示词
         return vo;
     }
 
+    /**
+     * 从向量检索结果中提取距离分数（score）
+     */
     private static double extractVectorDistance(Map<String, Object> h) {
         Object s = h.get("score");
         if (s instanceof Number n) {

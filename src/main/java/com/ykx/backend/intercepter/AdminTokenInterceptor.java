@@ -12,7 +12,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
 
 @Component
 public class AdminTokenInterceptor implements HandlerInterceptor {
-
+    //管理员请求头
     public static final String HEADER_NAME = "X-Admin-Token";
 
     @Resource

@@ -25,12 +25,14 @@ public class BlacklistServiceImpl extends ServiceImpl<AccessBlacklistMapper, Acc
 
     private static final String REDIS_USER = "access:bl:user:";
     private static final String REDIS_IP = "access:bl:ip:";
-    private static final String REDIS_USERNAME = "access:bl:username:";
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
 
     @Override
+    //它同时操作了【数据库 + Redis】，必须保证要么都成功，要么都失败！
+    //登录是查询操作，不修改数据，不需要事务！
+    //新增一条记录 + 添加redis状态
     @Transactional(rollbackFor = Exception.class)
     public void addUserIdBlock(String userId, String reason) {
         if (StrUtil.isBlank(userId)) {
@@ -90,36 +92,6 @@ public class BlacklistServiceImpl extends ServiceImpl<AccessBlacklistMapper, Acc
         }
     }
 
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void addUsernameBlock(String username, String reason) {
-        if (StrUtil.isBlank(username)) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户名不能为空");
-        }
-        String v = username.trim();
-        upsertBlock(BlacklistBlockType.USERNAME.getCode(), v, reason);
-        try {
-            stringRedisTemplate.opsForValue().set(REDIS_USERNAME + v, "1");
-        } catch (Exception e) {
-            log.warn("Redis 写入用户名黑名单失败: {}", e.getMessage());
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "缓存服务不可用");
-        }
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void removeUsernameBlock(String username) {
-        if (StrUtil.isBlank(username)) {
-            return;
-        }
-        String v = username.trim();
-        removeDb(BlacklistBlockType.USERNAME.getCode(), v);
-        try {
-            stringRedisTemplate.delete(REDIS_USERNAME + v);
-        } catch (Exception e) {
-            log.warn("Redis 删除用户名黑名单失败: {}", e.getMessage());
-        }
-    }
 
     @Override
     public boolean isBlockedUserId(String userId) {
@@ -138,36 +110,32 @@ public class BlacklistServiceImpl extends ServiceImpl<AccessBlacklistMapper, Acc
     }
 
     @Override
+    // 方法作用：传入一个IP，判断它是否被拉黑（封禁）
     public boolean isBlockedIp(String ip) {
+
+        // 1. 如果IP是空/空白，直接不算拉黑
         if (StrUtil.isBlank(ip)) {
             return false;
         }
+
+        // 2. 拼接Redis的key，格式：access:bl:ip:192.168.1.1
         String key = REDIS_IP + ip.trim();
+
         try {
+            // 3. 先查 Redis：如果这个IP在Redis里存在 → 说明是黑名单，返回true
             if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(key))) {
                 return true;
             }
+
+            // 4. 如果Redis挂了/连不上 → 捕获异常，不影响主流程
         } catch (Exception e) {
             log.warn("Redis 查询 IP 黑名单失败，降级查库: {}", e.getMessage());
         }
+
+        // 5. Redis里没查到，或者Redis挂了 → 去数据库查是否在黑名单
         return existsInDb(BlacklistBlockType.IP.getCode(), ip.trim());
     }
 
-    @Override
-    public boolean isBlockedUsername(String username) {
-        if (StrUtil.isBlank(username)) {
-            return false;
-        }
-        String key = REDIS_USERNAME + username.trim();
-        try {
-            if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(key))) {
-                return true;
-            }
-        } catch (Exception e) {
-            log.warn("Redis 查询用户名黑名单失败，降级查库: {}", e.getMessage());
-        }
-        return existsInDb(BlacklistBlockType.USERNAME.getCode(), username.trim());
-    }
 
     @Override
     public Page<AccessBlacklist> pageBlacklist(long current, long size) {

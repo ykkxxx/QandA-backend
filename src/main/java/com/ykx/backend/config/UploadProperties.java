@@ -12,6 +12,7 @@ public class UploadProperties {
     /**
      * 头像保存目录（相对路径相对进程工作目录，建议使用绝对路径部署）
      */
+    //头像上传的路径
     private String avatarDir = "uploads/avatars";
 
     /**

@@ -76,6 +76,8 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
     private static final String USER_LATEST_ACCESS_PREFIX = "user:token:";
     /** Redis：当前生效的 refresh_token（刷新接口比对；新登录会覆盖，旧 refresh 即作废） */
     private static final String USER_LATEST_REFRESH_PREFIX = "user:refresh:";
+    private static final String USER_INFO =   "user:info:";
+
     @Resource
     private StringRedisTemplate stringRedisTemplate;
 
@@ -100,7 +102,7 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
         try {
             stringRedisTemplate.delete(USER_LATEST_ACCESS_PREFIX + userId.trim());
             stringRedisTemplate.delete(USER_LATEST_REFRESH_PREFIX + userId.trim());
-            stringRedisTemplate.delete("user:info:" + userId.trim());
+            stringRedisTemplate.delete(USER_INFO + userId.trim());
         } catch (Exception e) {
             log.warn("清理用户会话 Redis 失败: {}", e.getMessage());
         }
@@ -121,12 +123,9 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
         if (!password.matches("^[a-zA-Z0-9_]{6,32}$")) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR,"密码格式错误：6-32位，仅允许字母、数字、下划线");
         }
-
+        //判断ip地址是否在黑名单中
         if (StrUtil.isNotBlank(clientIp) && blacklistService.isBlockedIp(clientIp)) {
             throw new BusinessException(ErrorCode.FORBIDDEN_ERROR, "当前网络环境暂时无法登录");
-        }
-        if (blacklistService.isBlockedUsername(username)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN_ERROR, "该用户名暂时无法登录");
         }
 
         // 4. 校验用户名和密码是否匹配
@@ -146,7 +145,7 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
         if (!encryptPassword.equals(user.getPassword_hash())) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户名或密码错误");
         }
-
+        //更新登录时间
         user.setLast_login(new Date());
         this.updateById(user);
         LoginData<UsersLoginVO> loginData = buildLoginData(user);
@@ -156,11 +155,11 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
     }
 
     @Override
-    public BaseResponse<UsersRegisterVO> register(UsersRegisterDTO usersRegisterVODTO, String clientIp) {
+    public BaseResponse<UsersRegisterVO> register(UsersRegisterDTO usersRegisterDTO, String clientIp) {
         // 1. 获取用户名 密码 确认密码
-        String username = usersRegisterVODTO.getUsername();
-        String password = usersRegisterVODTO.getPassword();
-        String confirmPassword = usersRegisterVODTO.getConfirm_password();
+        String username = usersRegisterDTO.getUsername();
+        String password = usersRegisterDTO.getPassword();
+        String confirmPassword = usersRegisterDTO.getConfirm_password();
         // 2. 校验用户名、密码格式
         if (!username.matches("^[a-zA-Z0-9_]{3,20}$")) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户名格式错误：3-20位，字母/数字/下划线");
@@ -172,14 +171,10 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
         if (!password.equals(confirmPassword)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "两次密码输入不一致");
         }
-
+        //4.校验ip是否合法
         if (StrUtil.isNotBlank(clientIp) && blacklistService.isBlockedIp(clientIp)) {
             throw new BusinessException(ErrorCode.FORBIDDEN_ERROR, "当前网络环境暂时无法注册");
         }
-        if (blacklistService.isBlockedUsername(username)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN_ERROR, "该用户名暂时无法注册");
-        }
-
         // 4. 校验用户是否已存在
         LambdaQueryWrapper<Users> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Users::getUsername, username);
@@ -193,8 +188,8 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
         Users user = new Users();
         user.setUsername(username);
         user.setPassword_hash(encryptPassword); // 存密文
-        user.setEmail(usersRegisterVODTO.getEmail());
-        user.setTelephone(usersRegisterVODTO.getTelephone());
+        user.setEmail(usersRegisterDTO.getEmail());
+        user.setTelephone(usersRegisterDTO.getTelephone());
         user.setStatus(UserStatusConstants.NORMAL);
         user.setRole(UserRoleConstants.USER);
         user.setDate_joined(new Date());
@@ -233,6 +228,7 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
         String username = (String) JWTUtil.parseToken(refresh_token).getPayload("username");
 
         String storedRefresh = null;
+        //USER_LATEST_REFRESH_PREFIX   user:refresh:uuid : freshtoken
         try {
             storedRefresh = stringRedisTemplate.opsForValue().get(USER_LATEST_REFRESH_PREFIX + userId);
         } catch (Exception e) {
@@ -277,7 +273,7 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
         }
 
         // 2.拼接用户缓存key（固定格式：user:info:用户uuid）
-        String userInfoKey = "user:info:" + userId;
+        String userInfoKey = USER_INFO + userId;
         String cacheStr = null;
         try {
             // 3.尝试从Redis读取用户缓存
@@ -320,48 +316,73 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
         return ResultUtils.success(usersInfoVO);
     }
 
+    /**
+     * 用户资料更新核心方法（同时支持：纯资料更新 + 头像上传更新）
+     * @param updateDTO 前端传入的用户资料字段
+     * @param avatarFile 头像文件（没有则为 null）
+     * @return 更新后的用户信息 VO
+     */
     @Override
     public BaseResponse<UsersUpdateVO> update(UsersUpdateDTO updateDTO, MultipartFile avatarFile) {
+
+        // 1.校验参数
         if (updateDTO == null) {
             updateDTO = new UsersUpdateDTO();
         }
-        // 3. 从 token 拿 userId（核心！不能用前端传的 id）
+
+        // 2. 从当前登录上下文获取 userId
         String userId = UserContext.getUserId();
         if (StrUtil.isBlank(userId)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "token 无效");
         }
 
-        // 4. 查询用户是否存在
+        // 3. 查询当前用户是否存在
         Users existUser = getById(userId);
         if (existUser == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "用户不存在");
         }
 
+        // ==================== 头像/文件相关配置 ====================
+        // 头像存储根目录
         Path avatarRoot = Paths.get(uploadProperties.getAvatarDir()).toAbsolutePath().normalize();
+        // 需要删除的旧头像
         String oldAvatarToDelete = null;
+        // 本次新保存的头像路径（用于更新失败时回滚删除）
         Path newlyWrittenAvatarPath = null;
 
-        // 5. 安全更新：仅处理 DTO 中非 null 字段（null 表示本次不修改）
+        // ==================== 4. 用户资料安全更新（只更新非空字段） ====================
+
+        // 更新用户名：校验格式 + 校验重复
         if (StrUtil.isNotBlank(updateDTO.getUsername())) {
             String newUsername = updateDTO.getUsername().trim();
+            // 只有和原来不一样才需要校验
             if (!newUsername.equals(existUser.getUsername())) {
+                // 用户名格式校验：3-20位字母/数字/下划线
                 if (!newUsername.matches("^[a-zA-Z0-9_]{3,20}$")) {
                     throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户名格式错误：3-20位，仅允许字母、数字、下划线");
                 }
+                // 检查用户名是否被其他人占用
                 LambdaQueryWrapper<Users> usernameTaken = new LambdaQueryWrapper<>();
                 usernameTaken.eq(Users::getUsername, newUsername).ne(Users::getUuid, userId);
                 if (this.count(usernameTaken) > 0) {
                     throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户名已被占用");
                 }
+                // 校验通过，设置新用户名
                 existUser.setUsername(newUsername);
             }
         }
+
+        // 更新邮箱
         if (updateDTO.getEmail() != null) {
             existUser.setEmail(StrUtil.trim(updateDTO.getEmail()));
         }
+
+        // 更新手机
         if (updateDTO.getTelephone() != null) {
             existUser.setTelephone(StrUtil.trim(updateDTO.getTelephone()));
         }
+
+        // 更新性别（0-未知 1-男 2-女）
         if (updateDTO.getGender() != null) {
             int g = updateDTO.getGender();
             if (g < 0 || g > 2) {
@@ -369,49 +390,74 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
             }
             existUser.setGender(g);
         }
+
+        // 更新个人简介
         if (updateDTO.getBio() != null) {
             existUser.setBio(updateDTO.getBio());
         }
 
+        // ==================== 5. 头像上传处理 ====================
         if (avatarFile != null && !avatarFile.isEmpty()) {
+            // 头像大小校验
             long maxBytes = uploadProperties.getMaxAvatarBytes();
             if (maxBytes > 0 && avatarFile.getSize() > maxBytes) {
                 throw new BusinessException(ErrorCode.PARAMS_ERROR, "头像文件过大");
             }
+
+            // 获取文件后缀并转小写
             String ext = StrUtil.blankToDefault(FileUtil.extName(avatarFile.getOriginalFilename()), "").toLowerCase(Locale.ROOT);
+            // 后缀白名单校验
             if (!AVATAR_ALLOWED_EXT.contains(ext)) {
                 throw new BusinessException(ErrorCode.PARAMS_ERROR, "仅支持 jpg、jpeg、png、gif、webp 图片");
             }
+
+            // 文件类型校验（必须是图片）
             String contentType = avatarFile.getContentType();
             if (StrUtil.isNotBlank(contentType) && !contentType.toLowerCase(Locale.ROOT).startsWith("image/")) {
                 throw new BusinessException(ErrorCode.PARAMS_ERROR, "文件类型必须是图片");
             }
+
+            // 创建头像存储目录（不存在则创建）
             try {
                 Files.createDirectories(avatarRoot);
             } catch (Exception e) {
                 log.warn("创建头像目录失败: {}", e.getMessage());
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR, "头像存储目录不可用");
             }
+
+            // 生成唯一文件名，防止重复/覆盖
             String storedName = IdUtil.fastSimpleUUID() + "." + ext;
+            // 拼接目标路径
             Path target = avatarRoot.resolve(storedName).normalize();
+
+            // 安全校验：防止路径穿越攻击
             if (!target.startsWith(avatarRoot)) {
                 throw new BusinessException(ErrorCode.PARAMS_ERROR, "非法文件名");
             }
+
+            // 保存文件到磁盘
             try (InputStream in = avatarFile.getInputStream()) {
                 Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
             } catch (Exception e) {
                 log.warn("保存头像失败: {}", e.getMessage());
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR, "头像保存失败");
             }
+
+            // 记录旧头像，用于后续删除
             oldAvatarToDelete = existUser.getAvatar();
+            // 设置新头像路径
             existUser.setAvatar(publicUploadedAvatarPath(storedName));
+            // 记录本次新文件路径（用于回滚）
             newlyWrittenAvatarPath = target;
-        } else if (updateDTO.getAvatar() != null) {
+        }
+        // 如果前端手动传了 avatar 字段（不是上传文件，是网络地址）
+        else if (updateDTO.getAvatar() != null) {
             existUser.setAvatar(StrUtil.trim(updateDTO.getAvatar()));
         }
 
-        // 6. 更新数据库
+        // ==================== 6. 执行数据库更新 ====================
         boolean updateSuccess = updateById(existUser);
+        // 更新失败：回滚——删除刚才保存的新头像
         if (!updateSuccess) {
             if (newlyWrittenAvatarPath != null) {
                 try {
@@ -423,19 +469,22 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "更新失败");
         }
 
+        // ==================== 7. 更新成功：删除旧头像 ====================
         if (avatarFile != null && !avatarFile.isEmpty()) {
             deleteStoredAvatarIfUnderUpload(oldAvatarToDelete, avatarRoot);
         }
 
+        // ==================== 8. 清除用户缓存，保证下次查询是最新数据 ====================
         try {
             stringRedisTemplate.delete("user:info:" + userId);
         } catch (Exception e) {
             log.warn("清除用户信息缓存失败: {}", e.getMessage());
         }
 
-        // 7. 转 VO 返回
+        // ==================== 9. 封装返回结果 ====================
         UsersUpdateVO updateVO = new UsersUpdateVO();
         BeanUtil.copyProperties(existUser, updateVO);
+        // 拼接前端可访问的完整头像 URL
         updateVO.setAvatar(toClientAvatarUrl(updateVO.getAvatar()));
 
         return ResultUtils.success(updateVO);
@@ -456,7 +505,6 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "旧密码不正确");
         }
 
-        // ===================== 【新增】确认密码校验 =====================
         // 校验新密码和确认密码必须一致
         if (!newPassword.equals(confirm_password)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "新密码与确认密码不一致");
@@ -491,6 +539,7 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
         }
         String code = IdUtil.fastSimpleUUID();
         String redisKey = SSO_CODE_PREFIX + code;
+        //sso:bridge:d4b2f3e3a1c94876b8e7f9a012345678  ：  user_id
         try {
             stringRedisTemplate.opsForValue().set(redisKey, userId, SSO_CODE_EXPIRE_SECONDS, TimeUnit.SECONDS);
         } catch (Exception e) {
@@ -512,6 +561,7 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
         String userId = null;
         try {
             userId = stringRedisTemplate.opsForValue().get(redisKey);
+           //用过立刻删除！
             if (StrUtil.isNotBlank(userId)) {
                 stringRedisTemplate.delete(redisKey);
             }
@@ -519,7 +569,6 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
             log.warn("SSO 校验 Redis 失败: {}", e.getMessage());
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "SSO 暂不可用");
         }
-
         if (StrUtil.isBlank(userId)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "无效或已过期的 SSO 凭证");
         }
@@ -531,8 +580,6 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
             throw new BusinessException(ErrorCode.FORBIDDEN_ERROR, "该账号已被封禁，无法使用单点登录");
         }
         LoginData<UsersLoginVO> loginData = buildLoginData(user);
-        bindLatestAccessToken(user.getUuid(), loginData.getAccess_token());
-        bindLatestRefreshToken(user.getUuid(), loginData.getRefresh_token());
         return ResultUtils.success(loginData);
     }
 
@@ -632,7 +679,7 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "会话服务不可用");
         }
     }
-
+    //把用户最新的 refresh_token 存到 Redis 里
     private void bindLatestRefreshToken(String userId, String refreshToken) {
         if (StrUtil.isBlank(userId) || StrUtil.isBlank(refreshToken)) {
             return;
@@ -648,18 +695,27 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "会话服务不可用");
         }
     }
-
+    //  登录成功后，给用户生成一套完整的登录信息
     private LoginData<UsersLoginVO> buildLoginData(Users user) {
+        //公共数据
         Map<String, Object> commonPayload = new HashMap<>();
         commonPayload.put("userId", user.getUuid());
         commonPayload.put("username", user.getUsername());
         commonPayload.put("role", user.getRole() != null ? user.getRole() : UserRoleConstants.USER);
+        //复制公共数据 → 再加自己的过期时间 access的map
         Map<String, Object> accessPayload = new HashMap<>(commonPayload);
         accessPayload.put("exp", System.currentTimeMillis() / 1000 + ACCESS_EXPIRE);
+
         String accessToken = JWTUtil.createToken(accessPayload, JWT_SECRET.getBytes());
+
+        //refreshmap
+        //为什么要这么写？
+        //因为 accessToken 和 refreshToken 的过期时间不一样！
         Map<String, Object> refreshPayload = new HashMap<>(commonPayload);
         refreshPayload.put("exp", System.currentTimeMillis() / 1000 + REFRESH_EXPIRE);
+
         String refreshToken = JWTUtil.createToken(refreshPayload, JWT_SECRET.getBytes());
+
         UsersLoginVO usersVO = BeanUtil.copyProperties(user, UsersLoginVO.class);
         usersVO.setAvatar(toClientAvatarUrl(user.getAvatar()));
         LoginData<UsersLoginVO> loginData = new LoginData<>();

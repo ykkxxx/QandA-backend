@@ -24,6 +24,7 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    //更改user表的status字段 + 删除redis中的用户状态 + 新增一个拉黑标志 + 黑名单表中新增一条记录
     public void banUser(String userId, String reason) {
         if (StrUtil.isBlank(userId)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "userId 不能为空");
@@ -36,12 +37,15 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
         if (!usersService.updateById(user)) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "封禁失败");
         }
+        //删除redis中关于user的所有key
         usersService.evictUserSession(userId.trim());
+
         blacklistService.addUserIdBlock(userId.trim(), reason);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    //还原user表的status字段 +  删除redis中拉黑标志  + 删除表中数据
     public void unbanUser(String userId) {
         if (StrUtil.isBlank(userId)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "userId 不能为空");
@@ -67,15 +71,7 @@ public class SecurityAdminServiceImpl implements SecurityAdminService {
         blacklistService.removeIpBlock(ip);
     }
 
-    @Override
-    public void blockUsername(String username, String reason) {
-        blacklistService.addUsernameBlock(username, reason);
-    }
 
-    @Override
-    public void unblockUsername(String username) {
-        blacklistService.removeUsernameBlock(username);
-    }
 
     @Override
     public Page<AccessBlacklist> listBlacklist(long page, long size) {
