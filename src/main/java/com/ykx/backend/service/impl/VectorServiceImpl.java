@@ -59,65 +59,36 @@ public class VectorServiceImpl implements VectorService {
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.setBearerAuth(key);
 
-            String trimmedUrl = url.trim();
-            boolean compatibleOpenAi = trimmedUrl.contains("compatible-mode");
-
+            Map<String, Object> input = new LinkedHashMap<>();
+            input.put("texts", List.of(text));  // 百炼固定格式
             Map<String, Object> param = new LinkedHashMap<>();
             param.put("model", vectorProperties.getEmbedding().getModel());
-            Integer dim = vectorProperties.getMilvus() != null ? vectorProperties.getMilvus().getDimension() : null;
+            param.put("input", input);
 
-            if (compatibleOpenAi) {
-                // OpenAI 兼容：/compatible-mode/v1/embeddings
-                param.put("input", text);
-                if (dim != null) {
-                    param.put("dimensions", dim);
-                }
-            } else {
-                // 百炼原生：.../services/embeddings/text-embedding/text-embedding
-                Map<String, Object> inputObj = new LinkedHashMap<>();
-                inputObj.put("texts", List.of(text));
-                param.put("input", inputObj);
-                if (dim != null) {
-                    Map<String, Object> parameters = new LinkedHashMap<>();
-                    parameters.put("dimension", dim);
-                    param.put("parameters", parameters);
-                }
+            //获取向量维度
+            Integer dim = vectorProperties.getMilvus().getDimension();
+            if (dim != null) {
+                Map<String, Object> parameters = new LinkedHashMap<>();
+                parameters.put("dimension", dim);
+                param.put("parameters", parameters);
             }
-
+            //发送请求
+            //将对象转 字符串 http才能传输
             String jsonBody = objectMapper.writeValueAsString(param);
             HttpEntity<String> entity = new HttpEntity<>(jsonBody, headers);
             ResponseEntity<String> response = restTemplate.exchange(
-                    trimmedUrl,
-                    HttpMethod.POST,
-                    entity,
-                    String.class);
-
+                    url.trim(), // 1. 目标地址
+                    HttpMethod.POST,// 2. HTTP 动词/方法
+                    entity,// 3. 请求实体（包含 Body 和 Headers）
+                    String.class// 4. 响应体数据类型
+            );
+            //解析结果
             String raw = response.getBody();
             if (raw == null || raw.isEmpty()) {
-                throw new RuntimeException("嵌入接口返回空响应");
+                throw new RuntimeException("嵌入接口返回空");
             }
             Map<String, Object> body = objectMapper.readValue(raw, new TypeReference<Map<String, Object>>() {});
-            return parseEmbeddingResponse(body, compatibleOpenAi);
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException("嵌入请求 JSON 序列化/解析失败：" + e.getOriginalMessage(), e);
-        } catch (HttpClientErrorException e) {
-            if (e.getStatusCode().value() == 401) {
-                throw new RuntimeException(
-                        "嵌入服务返回 401：密钥无效或未授权。若使用阿里云百炼兼容地址，请使用 DashScope 控制台申请的 API Key（不是 DeepSeek 的 sk），并配置 VECTOR_EMBEDDING_API_KEY 或 vector.embedding.api-key。",
-                        e);
-            }
-            int code = e.getStatusCode().value();
-            String bodySnippet = e.getResponseBodyAsString();
-            if (StringUtils.hasText(bodySnippet) && bodySnippet.length() > 500) {
-                bodySnippet = bodySnippet.substring(0, 500) + "...";
-            }
-            String hint = code == 404
-                    ? "（若请求的是 DeepSeek 的 /v1/embeddings，官方当前普遍返回 404，嵌入需换用百炼等提供该路由的服务。）"
-                    : "";
-            String detail = StringUtils.hasText(bodySnippet) ? " 响应：" + bodySnippet : "";
-            throw new RuntimeException("嵌入服务 HTTP " + code + "：" + e.getStatusText() + hint + detail, e);
-        } catch (RuntimeException e) {
-            throw e;
+            return parseDashScopeNativeEmbedding(body); // 直接调用百炼解析
         } catch (Exception e) {
             throw new RuntimeException("生成向量失败：" + e.getMessage(), e);
         }
@@ -125,16 +96,21 @@ public class VectorServiceImpl implements VectorService {
 
     @Override
     public List<String> splitText(String text) {
+        //字符个数
         int size = vectorProperties.getChunk().getSize();
+        //段和上一段重复 的字符个数，
         int overlap = vectorProperties.getChunk().getOverlap();
+        // 3. 计算步长：每次往后挪多少
         int step = size - overlap;
+        //（如果重叠>=长度，就按不重叠处理）
         if (step <= 0) {
             step = size;
         }
-
+        //// 用来装切好的所有片段
         List<String> list = new ArrayList<>();
         int len = text.length();
         for (int i = 0; i < len; i += step) {
+            // // 结束位置 = 当前位置 + 每片长度（不能超过文本总长度）
             int end = Math.min(i + size, len);
             list.add(text.substring(i, end));
         }
@@ -144,11 +120,12 @@ public class VectorServiceImpl implements VectorService {
     @Override
     public void saveToMilvus(String userId, String content, String sourceFile) {
         List<String> chunks = splitText(content);
+        //记录当前文本片段（Chunk）在原始完整文本中的顺序位置。
         int index = 0;
         for (String chunk : chunks) {
             List<Float> vector = createEmbedding(chunk);
             String id = UUID.randomUUID().toString();
-
+            //把单个值包成一个只有 1 个元素的列表Collections.singletonList
             List<InsertParam.Field> fields = Arrays.asList(
                     new InsertParam.Field("id", Collections.singletonList(id)),
                     new InsertParam.Field("vector", Collections.singletonList(vector)),
@@ -164,20 +141,27 @@ public class VectorServiceImpl implements VectorService {
             );
             index++;
         }
-        log.info("✅ 文本存入 Milvus 完成，切片数：{}", chunks.size());
+        log.info("文本存入 Milvus 完成，切片数：{}", chunks.size());
     }
 
     @Override
     public List<Map<String, Object>> search(String userId, String question, int topK) {
+        //1.生成问题向量
         List<Float> vector = createEmbedding(question);
-
+        //2.调用 Milvus 执行向量搜索
         R<SearchResults> results = milvusClientAdapter.query(
                 vectorProperties.getMilvus().getCollection(),
                 vector,
                 topK,
                 userId
         );
-
+        //result
+        // {
+        //  "status": 0,          // 0=成功
+        //  "message": "Success",
+        //  "data": SearchResults对象  ← 真正的搜索结果
+        //}
+        //
         if (results.getStatus() != R.Status.Success.getCode()) {
             throw new RuntimeException("向量检索失败：" + results.getMessage());
         }
@@ -185,13 +169,34 @@ public class VectorServiceImpl implements VectorService {
         if (data == null) {
             return Collections.emptyList();
         }
-        // Milvus proto 里 results 为单个 SearchResultData，无 getResultsCount()/getResults(0)
+        //SearchResults {
+        //  results: SearchResultData {  ← 真正的数据
+        //    scores: [0.12, 0.15, 0.20],    ← 相似度分数（越小越相似）
+        //    ids: ["1001","1002","1003"],   ← 主键ID
+        //    fields_data: [
+        //      Field {
+        //        field_name: "content",
+        //        data: ["文本片段1","文本片段2","文本片段3"]
+        //      },
+        //      Field {
+        //        field_name: "source_file",
+        //        data: ["文件1.pdf","文件2.md"]
+        //      },
+        //      Field {
+        //        field_name: "chunk_index",
+        //        data: [2, 3, 5]
+        //      }
+        //    ]
+        //  }
+        //}
         SearchResultData resultData = data.getResults();
         if (resultData.getScoresCount() == 0) {
             return Collections.emptyList();
         }
 
         SearchResultsWrapper wrapper = new SearchResultsWrapper(resultData);
+        //将每一列的数据变成list
+        //最终你得到了 4 个整齐的 List：
         List<?> contents = wrapper.getFieldData("content", 0);
         List<?> sources = wrapper.getFieldData("source_file", 0);
         List<?> chunkIndices = wrapper.getFieldData("chunk_index", 0);
@@ -208,6 +213,28 @@ public class VectorServiceImpl implements VectorService {
             map.put("score", idScores.get(i).getScore());
             list.add(map);
         }
+        //List<Map>
+        // [
+        //  {
+        //    "content": "SpringBoot通过SPI机制实现自动配置……",
+        //    "source_file": "Java面试.pdf",
+        //    "chunk_index": 2,
+        //    "score": 0.12
+        //  },
+        //  {
+        //    "content": "@EnableAutoConfiguration注解加载配置类……",
+        //    "source_file": "Java面试.pdf",
+        //    "chunk_index": 3,
+        //    "score": 0.15
+        //  },
+        //  {
+        //    "content": "SpringBoot starter场景启动器原理……",
+        //    "source_file": "Java面试.pdf",
+        //    "chunk_index": 4,
+        //    "score": 0.21
+        //  }
+        //]
+        //分数越低 = 越相似
         if (list.size() > topK) {
             log.warn("Milvus 返回 {} 条，大于请求的 topK={}，已截断", list.size(), topK);
             return new ArrayList<>(list.subList(0, topK));
@@ -215,26 +242,8 @@ public class VectorServiceImpl implements VectorService {
         return list;
     }
 
-    private List<Float> parseEmbeddingResponse(Map<String, Object> body, boolean compatibleOpenAi) {
-        if (compatibleOpenAi) {
-            return parseOpenAiCompatibleEmbedding(body);
-        }
-        return parseDashScopeNativeEmbedding(body);
-    }
 
-    @SuppressWarnings("unchecked")
-    private List<Float> parseOpenAiCompatibleEmbedding(Map<String, Object> body) {
-        Object dataObj = body.get("data");
-        if (!(dataObj instanceof List<?> dataList) || dataList.isEmpty()) {
-            throw new RuntimeException("嵌入接口返回 data 格式异常");
-        }
-        Object first = dataList.get(0);
-        if (!(first instanceof Map)) {
-            throw new RuntimeException("嵌入接口返回 data[0] 格式异常");
-        }
-        return toFloatList(((Map<String, Object>) first).get("embedding"));
-    }
-
+    //获取返回结果中的 embedding 变成 List<Float>
     @SuppressWarnings("unchecked")
     private List<Float> parseDashScopeNativeEmbedding(Map<String, Object> body) {
         Object code = body.get("code");

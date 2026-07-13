@@ -15,6 +15,7 @@ import java.time.Duration;
 public class LangChain4jConfig {
 
     @Bean
+    //创建模型
     public ChatLanguageModel chatLanguageModel(DeepSeekAiProperties props) {
         String baseUrl = toOpenAiCompatibleBaseUrl(props.getApiUrl());
         String model = StringUtils.hasText(props.getModel()) ? props.getModel() : "deepseek-chat";

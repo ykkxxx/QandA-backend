@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 @Component
 @ConfigurationProperties(prefix = "vector")
 public class VectorProperties {
-    private Milvus milvus;  // 替换原Chroma配置
+    private Milvus milvus;
     private Chunk chunk;
     private Embedding embedding;
 

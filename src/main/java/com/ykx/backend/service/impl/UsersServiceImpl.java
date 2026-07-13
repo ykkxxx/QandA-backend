@@ -148,7 +148,10 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
         //更新登录时间
         user.setLast_login(new Date());
         this.updateById(user);
+        //返回封装体
+        //buildLoginData生成token
         LoginData<UsersLoginVO> loginData = buildLoginData(user);
+        //将token存入redis
         bindLatestAccessToken(user.getUuid(), loginData.getAccess_token());
         bindLatestRefreshToken(user.getUuid(), loginData.getRefresh_token());
         return ResultUtils.success(loginData);
@@ -257,7 +260,7 @@ public class UsersServiceImpl extends ServiceImpl<UsersMapper, Users>
         // 5. 封装返回
         LoginData<Null> loginData = new LoginData<>();
         loginData.setAccess_token(newAccessToken);
-        loginData.setRefresh_token(refresh_token); // 保持原来的！
+        loginData.setRefresh_token(refresh_token); // 保持原来的
         loginData.setExpires_in((int) ACCESS_EXPIRE);
         loginData.setToken_type("Bearer");
         return ResultUtils.success(loginData);

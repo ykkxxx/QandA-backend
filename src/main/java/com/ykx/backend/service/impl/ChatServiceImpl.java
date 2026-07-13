@@ -6,6 +6,7 @@ import com.ykx.backend.ai.lc.ChatAssistant;
 import com.ykx.backend.common.BaseResponse;
 import com.ykx.backend.common.ResultUtils;
 import com.ykx.backend.common.UserContext;
+import com.ykx.backend.config.AgentProperties;
 import com.ykx.backend.config.DeepSeekAiProperties;
 import com.ykx.backend.exception.BusinessException;
 import com.ykx.backend.exception.ErrorCode;
@@ -23,8 +24,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-
+import com.ykx.backend.agent.AgentToolCallContext;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
@@ -38,7 +40,7 @@ public class ChatServiceImpl implements ChatService {
     private final RagService ragService;
     private final ChatAssistant chatAssistant;
     private final DeepSeekAiProperties deepSeekAiProperties;
-
+    private final AgentProperties agentProperties;
     @Override
     @Transactional(rollbackFor = Exception.class)
     public BaseResponse<MessageSendResponseVO> sendMessage(MessageSendRequestDTO dto) {
@@ -71,20 +73,26 @@ public class ChatServiceImpl implements ChatService {
             }
         }
 
+
         LambdaQueryWrapper<ChatMessages> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(ChatMessages::getSession_id, sessionId);
-        wrapper.orderByAsc(ChatMessages::getCreated_at);
+        wrapper.orderByDesc(ChatMessages::getCreated_at);
+        wrapper.last("limit " + Math.max(1, agentProperties.getMaxHistoryMessages()));
         List<ChatMessages> historyList = chatMessagesMapper.selectList(wrapper);
-
+        Collections.reverse(historyList);
+        //将list按时间降序 按role 拆解成user 和assistant
         String historyBlock = buildHistoryBlock(historyList);
         String agentPayload = buildAgentPayload(historyBlock, query.trim(), userId);
 
         String aiAnswer;
+        AgentToolCallContext.init(userId,sessionId);
         try {
             aiAnswer = chatAssistant.reply(agentPayload);
         } catch (Exception e) {
             log.error("大模型调用失败", e);
             throw new BusinessException(ErrorCode.OPERATION_ERROR, friendlyLlmMessage(e));
+        }finally {
+            AgentToolCallContext.clear();
         }
         if (StrUtil.isBlank(aiAnswer)) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "大模型未返回有效内容，请稍后重试");

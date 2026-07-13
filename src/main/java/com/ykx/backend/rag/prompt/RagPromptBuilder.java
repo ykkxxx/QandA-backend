@@ -15,29 +15,63 @@ public final class RagPromptBuilder {
     }
 
     /**
-     * 将多条检索片段格式化为带编号的上下文块（供模型阅读）。
+     * 拼接 RAG 检索出来的片段
+     * 一边拼一边算长度，超过 maxChars 就停止
+     * 保证最终 Prompt 不超长
      */
-    public static String concatRetrievedChunks(List<Map<String, Object>> chunks, int maxChars) {
+    public static String concatRetrievedChunks(
+            List<Map<String, Object>> chunks,  // 精排后的片段列表（最相关的排前面）
+            int maxChars                      // 最大字符数：例如 8000
+    ) {
+
+        // 1. 空值直接返回空
         if (chunks == null || chunks.isEmpty()) {
             return "";
         }
+
+        // 2. 拼接工具，每个片段之间用 两个换行 隔开
         StringJoiner joiner = new StringJoiner("\n\n");
-        int used = 0;
-        int n = 1;
+
+        int used = 0;  // 已经用了多少字符
+        int n = 1;     // 片段编号 1、2、3…
+
+
+        // 3. 遍历每一个片段（已经按相关性排序）
         for (Map<String, Object> row : chunks) {
+
+            // 把 1 条片段格式化成：
+            // 【片段1】xxxx
+            // 【片段2】xxxx
             String block = formatOneChunk(n, row);
+
+            // 空片段跳过
             if (!StringUtils.hasText(block)) {
                 continue;
             }
+
+
+            // ==============================================
+            // 🔥 核心截断逻辑：
+            // 如果加上这个片段会超长度 → 直接停止，不添加！
+            // ==============================================
+            //used>0不让第一条片段因为 “太长” 直接被丢掉，导致上下文空！
             if (used + block.length() > maxChars && used > 0) {
                 break;
             }
+
+            // 4. 加入拼接结果
             joiner.add(block);
-            used += block.length() + 2;
-            n++;
+
+            // 5. 累计已用字符数
+            used += block.length() + 2;  // +2 是分隔符 \n\n
+
+            n++; // 片段编号+1
         }
+
+        // 6. 返回最终拼接好的上下文字符串
         return joiner.toString();
     }
+
 
     private static String formatOneChunk(int index, Map<String, Object> row) {
         Object content = row.get("content");

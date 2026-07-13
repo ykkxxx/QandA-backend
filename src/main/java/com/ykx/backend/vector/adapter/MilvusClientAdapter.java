@@ -28,7 +28,8 @@ import org.springframework.util.StringUtils;
 import java.util.List;
 
 /**
- * Milvus 客户端适配器（SDK 2.4.x，支持 database + collection）
+ * 这是一个操作 Milvus 向量数据库的工具类
+ * 连接库 → 创建表 → 存文本分片 + 向量 → 按向量相似度搜索
  */
 @Slf4j
 @Component
@@ -39,7 +40,7 @@ public class MilvusClientAdapter {
 
     private MilvusServiceClient milvusClient;
 
-    /** 配置了则所有 RPC 带库名；未配置则走服务端默认库 default */
+    /** 获取milvus数据库库名 */
     private String milvusDatabaseName() {
         if (vectorProperties.getMilvus() == null) {
             return null;
@@ -50,7 +51,7 @@ public class MilvusClientAdapter {
         }
         return db.trim();
     }
-
+    //连接数据库
     @PostConstruct
     public void init() {
         try {
@@ -69,17 +70,30 @@ public class MilvusClientAdapter {
         }
     }
 
+    /**
+     *
+     *
+     * @param collectionName 表名
+     */
     public void ensureCollection(String collectionName) {
         String db = milvusDatabaseName();
-
+        // HasCollectionParam.Builder 是 Milvus 官方提供的「参数构造器」
+        //1.判断这个表是否存在
+        //hasB 可以看出一张表[
+        // 表名：
+        // 库名：
+        // ]
         HasCollectionParam.Builder hasB = HasCollectionParam.newBuilder()
                 .withCollectionName(collectionName);
         if (db != null) {
+            //如果db存在 则填入指定库名 不然用默认库
             hasB.withDatabaseName(db);
         }
+        //R 就是 Milvus 官方写的 BaseResponse！
         R<Boolean> checkCollection = milvusClient.hasCollection(hasB.build());
-
+        //如果是data是空 说明没有这张表 则重新创建表
         if (!checkCollection.getData()) {
+            //2. 定义表的字段
             FieldType idField = FieldType.newBuilder()
                     .withName("id")
                     .withDataType(DataType.VarChar)
@@ -128,7 +142,7 @@ public class MilvusClientAdapter {
                 createB.withDatabaseName(db);
             }
             milvusClient.createCollection(createB.build());
-
+            //4. 创建向量索引信息
             CreateIndexParam.Builder indexB = CreateIndexParam.newBuilder()
                     .withCollectionName(collectionName)
                     .withFieldName("vector")
@@ -138,11 +152,13 @@ public class MilvusClientAdapter {
             if (db != null) {
                 indexB.withDatabaseName(db);
             }
+            //创建索引
             R<?> indexR = milvusClient.createIndex(indexB.build());
             if (indexR.getStatus() != R.Status.Success.getCode()) {
                 throw new RuntimeException("❌ Milvus 创建索引失败：" + indexR.getMessage());
             }
-
+            //Milvus 有一个硬性规则：
+            //创建完表 → 必须 load 加载到内存 → 才能搜索、插入数据！
             LoadCollectionParam.Builder loadB = LoadCollectionParam.newBuilder()
                     .withCollectionName(collectionName);
             if (db != null) {
@@ -156,10 +172,11 @@ public class MilvusClientAdapter {
             log.info("✅ Milvus 集合创建成功：{}.{}", db != null ? db : "default", collectionName);
         }
     }
-
+    //collectionName：要插入的表名
+    //fields：要插入的数据（id、向量、文本、用户 ID 等）
     public void upsert(String collectionName, List<InsertParam.Field> fields) {
         String db = milvusDatabaseName();
-
+        //3. 构建插入参数
         InsertParam.Builder insB = InsertParam.newBuilder()
                 .withCollectionName(collectionName)
                 .withFields(fields);
@@ -171,7 +188,7 @@ public class MilvusClientAdapter {
         if (result.getStatus() != R.Status.Success.getCode()) {
             throw new RuntimeException("❌ 向量入库失败：" + result.getMessage());
         }
-
+        //7. 刷新数据（让数据立刻可搜索）
         FlushParam.Builder flushB = FlushParam.newBuilder()
                 .addCollectionName(collectionName)
                 .withSyncFlush(Boolean.TRUE);
@@ -185,7 +202,8 @@ public class MilvusClientAdapter {
 
         log.info("✅ 向量入库完成：{} 条", result.getData().getInsertCnt());
     }
-
+    //根据问题 返回topK相似的chunk
+    //collectionName 表名
     public R<SearchResults> query(String collectionName, List<Float> embedding, int topK, String userId) {
         String db = milvusDatabaseName();
 

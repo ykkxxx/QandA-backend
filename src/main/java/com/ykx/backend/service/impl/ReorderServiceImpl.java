@@ -36,21 +36,35 @@ public class ReorderServiceImpl implements ReorderService {
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate = new RestTemplate();
 
+    /**
+     * 重排序（Rerank）核心方法
+     * 作用：把向量搜索出来的片段 → 调用阿里云重排模型打分 → 按相关性从高到低排序 → 返回最相关的TOP K
+     * @param query 用户的问题
+     * @param hits 向量库搜索出来的片段列表
+     * @return 重排后的最终片段列表
+     */
     @Override
     public List<Map<String, Object>> rerank(String query, List<Map<String, Object>> hits) {
+
+        // ====================== 1. 读取重排配置 ======================
         RagProperties.Rerank cfg = ragProperties.getRerank() != null
                 ? ragProperties.getRerank()
                 : new RagProperties.Rerank();
+
+        // 如果没开启重排，或者没有结果 → 直接返回前 finalTopK 条，不做重排
         if (!cfg.isEnabled() || hits == null || hits.isEmpty()) {
             return truncateCopy(hits, cfg.getFinalTopK());
         }
 
+        // ====================== 2. 检查API密钥 ======================
         String apiKey = resolveApiKey(cfg);
         if (!StringUtils.hasText(apiKey)) {
             log.warn("重排未配置 api-key，跳过重排");
             return truncateCopy(hits, cfg.getFinalTopK());
         }
 
+        // ====================== 3. 提取所有片段的文本内容 ======================
+        // 把向量搜索出来的每一条的 content 拿出来，准备传给重排模型
         List<String> documents = new ArrayList<>(hits.size());
         for (Map<String, Object> h : hits) {
             Object c = h.get("content");
@@ -58,18 +72,26 @@ public class ReorderServiceImpl implements ReorderService {
         }
 
         try {
+            // ====================== 4. 构造请求，调用阿里云重排接口 ======================
             String url = cfg.getApiUrl() != null ? cfg.getApiUrl().trim() : "";
             String bodyJson;
+
+            // 判断接口类型：兼容OpenAI格式 / 阿里云原生格式
             boolean compatible = url.contains("compatible-api/v1/reranks");
             if (compatible) {
+                // 兼容通义千问3 OpenAI格式
                 bodyJson = buildQwen3CompatibleBody(cfg, query, documents);
             } else {
+                // 阿里云原生 GTE 重排格式
                 bodyJson = buildGteNativeBody(cfg, query, documents);
             }
 
+            // 请求头：JSON + 身份认证
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.setBearerAuth(apiKey);
+
+            // 发送POST请求
             HttpEntity<String> entity = new HttpEntity<>(bodyJson, headers);
             ResponseEntity<String> response = restTemplate.exchange(
                     url,
@@ -77,13 +99,17 @@ public class ReorderServiceImpl implements ReorderService {
                     entity,
                     String.class);
 
+            // ====================== 5. 处理接口返回 ======================
             String raw = response.getBody();
             if (raw == null || raw.isEmpty()) {
                 log.warn("重排接口返回空，回退为向量顺序");
                 return truncateCopy(hits, cfg.getFinalTopK());
             }
 
+            // 把返回JSON转成Map
             Map<String, Object> root = objectMapper.readValue(raw, new TypeReference<Map<String, Object>>() {});
+
+            // 如果接口返回错误码 → 跳过重排
             if (root.containsKey("code") && root.get("code") != null
                     && !String.valueOf(root.get("code")).isBlank()
                     && !"null".equalsIgnoreCase(String.valueOf(root.get("code")))) {
@@ -91,11 +117,16 @@ public class ReorderServiceImpl implements ReorderService {
                 return truncateCopy(hits, cfg.getFinalTopK());
             }
 
+            // ====================== 6. 解析重排结果 → 重新排序 ======================
             List<Map<String, Object>> ordered = compatible
                     ? parseQwen3CompatibleResults(root, hits, cfg)
                     : parseGteNativeResults(root, hits, cfg);
+
+            // 返回最终排好序的列表（已过滤低分 + 只保留TOP K）
             return ordered;
+
         } catch (Exception e) {
+            // 接口调用异常 → 回退到原始向量顺序，不做重排
             log.warn("重排调用失败，回退为向量顺序：{}", e.getMessage());
             int k = ragProperties.getRerank() != null ? ragProperties.getRerank().getFinalTopK() : 5;
             return truncateCopy(hits, k);
@@ -235,15 +266,35 @@ public class ReorderServiceImpl implements ReorderService {
         }
     }
 
+    /**
+     * 安全截取前 finalTopK 条结果，并复制一份新列表返回
+     * @param hits 原始的片段列表（向量召回或重排后的）
+     * @param finalTopK 要保留几条（比如 5 条）
+     * @return 截取后的新列表
+     */
     private static List<Map<String, Object>> truncateCopy(List<Map<String, Object>> hits, int finalTopK) {
+
+        // 如果原始列表是空的，直接返回空列表，不报错
         if (hits == null || hits.isEmpty()) {
             return List.of();
         }
+
+        // ==========================================
+        // 核心：计算最终要截取几条
+        // 1. 至少保留 1 条（Math.max(finalTopK, 1)）
+        // 2. 不能超过原始列表的总条数
+        // ==========================================
         int n = Math.min(Math.max(finalTopK, 1), hits.size());
+
+        // 新建一个小列表，容量是 n
         List<Map<String, Object>> list = new ArrayList<>(n);
+
+        // 循环把前 n 条 复制 进去
         for (int i = 0; i < n; i++) {
-            list.add(new HashMap<>(hits.get(i)));
+            list.add(new HashMap<>(hits.get(i))); // 重点：复制一份新Map！
         }
+
+        // 返回截取后的新列表
         return list;
     }
 }

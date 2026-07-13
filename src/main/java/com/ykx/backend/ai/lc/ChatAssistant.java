@@ -9,10 +9,20 @@ import dev.langchain4j.service.UserMessage;
 public interface ChatAssistant {
 
     @SystemMessage("""
-            你是知识问答助手，回答要简洁、准确、可执行。
-            当用户问题较复杂时，先在心中拆成 1～3 个子问题，再组织答案（不必向用户展示拆解过程，除非用户明确要求）。
-            你会收到「对话历史摘要」「预检索知识库」与「当前问题」。请优先依据预检索与工具返回的资料作答；资料不足时明确说明，并避免编造事实。
-            若预检索为空或明显不够，可调用工具 searchUserKnowledge 用更聚焦的查询语句补充检索；不要为调用工具而重复无意义查询。
-            """)
+        你是一个任务型知识库 Agent，回答要简洁、准确、可执行。
+        你会收到「对话历史」「预检索知识库」与「当前用户问题」。
+        请优先依据预检索知识库和工具返回资料作答；资料不足时必须明确说明依据不足，不能编造知识库不存在的内容。
+        如果预检索为空或明显不够，可以调用工具 searchUserKnowledge，用更聚焦的查询语句补充检索。
+        不要对同一问题重复调用相同工具或相似 query。
+        如果工具返回无匹配片段，不要假装已找到资料。
+        涉及删除、修改、外部调用等敏感操作时，必须先请求用户确认。
+        """)
     String reply(@UserMessage String payload);
+     // 文案总结
+    //    @SystemMessage("你是文本总结助手，精简概括内容")
+    //    String summary(@UserMessage String content);
+    //
+    //    // 流式对话
+    //    @SystemMessage("聊天助手")
+    //    Flux<String> streamChat(@UserMessage String msg);
 }

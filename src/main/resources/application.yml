@@ -25,6 +25,8 @@ vector:
 rag:
   retrieval:
     initial-top-k: 20
+  vector:
+    max-l2-distance: 0.9
   rerank:
     enabled: true
     model: gte-rerank-v2
@@ -34,6 +36,11 @@ rag:
     final-top-k: 5
   prompt:
     max-context-chars: 8000
+agent:
+  max-tool-calls: 3
+  max-knowledge-search-calls: 2
+  max-history-messages: 20
+  tool-output-max-chars: 1000
 app:
   admin:
     # 管理接口（封禁/黑名单）请求头 X-Admin-Token，生产环境务必修改

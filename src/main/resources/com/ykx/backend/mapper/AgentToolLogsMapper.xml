@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ykx.backend.mapper.AgentToolLogsMapper">
+
+    <resultMap id="BaseResultMap" type="com.ykx.backend.model.entity.AgentToolLogs">
+            <id property="id" column="id" />
+            <result property="user_id" column="user_id" />
+            <result property="session_id" column="session_id" />
+            <result property="tool_name" column="tool_name" />
+            <result property="tool_input" column="tool_input" />
+            <result property="tool_output" column="tool_output" />
+            <result property="success" column="success" />
+            <result property="error_message" column="error_message" />
+            <result property="latency_ms" column="latency_ms" />
+            <result property="created_at" column="created_at" />
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id,user_id,session_id,tool_name,tool_input,tool_output,
+        success,error_message,latency_ms,created_at
+    </sql>
+</mapper>
