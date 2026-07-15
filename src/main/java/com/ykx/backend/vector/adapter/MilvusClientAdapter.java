@@ -6,6 +6,7 @@ import io.milvus.common.clientenum.ConsistencyLevelEnum;
 import io.milvus.grpc.DataType;
 import io.milvus.grpc.FlushResponse;
 import io.milvus.grpc.MutationResult;
+import io.milvus.grpc.QueryResults;
 import io.milvus.grpc.SearchResults;
 import io.milvus.param.ConnectParam;
 import io.milvus.param.IndexType;
@@ -16,7 +17,9 @@ import io.milvus.param.collection.FieldType;
 import io.milvus.param.collection.FlushParam;
 import io.milvus.param.collection.HasCollectionParam;
 import io.milvus.param.collection.LoadCollectionParam;
+import io.milvus.param.dml.DeleteParam;
 import io.milvus.param.dml.InsertParam;
+import io.milvus.param.dml.QueryParam;
 import io.milvus.param.dml.SearchParam;
 import io.milvus.param.index.CreateIndexParam;
 import jakarta.annotation.PostConstruct;
@@ -25,7 +28,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-import java.util.List;
+import java.util.*;
 
 /**
  * 这是一个操作 Milvus 向量数据库的工具类
@@ -221,5 +224,30 @@ public class MilvusClientAdapter {
         }
 
         return milvusClient.search(searchB.build());
+    }
+
+    public R<QueryResults> queryDocument(String collectionName, String userId) {
+        String db = milvusDatabaseName();
+        
+        QueryParam.Builder queryBuilder = QueryParam.newBuilder()
+                .withCollectionName(collectionName)
+                .withExpr("user_id == '" + userId + "'")
+                .withOutFields(Arrays.asList("document_id", "source_file", "upload_time"))
+                .withConsistencyLevel(ConsistencyLevelEnum.STRONG)
+                .withLimit(10000L);
+        if (db != null) {
+            queryBuilder.withDatabaseName(db);
+        }
+
+        return milvusClient.query(queryBuilder.build());
+    }
+    public boolean deleteDocument(String collectionName,String userId,String documentId){
+        String db = milvusDatabaseName();// 从配置中获取数据库名
+        DeleteParam.Builder deleteBuilder = DeleteParam.newBuilder()
+                .withDatabaseName(db)
+                 .withCollectionName(collectionName)
+                .withExpr("user_id == '" + userId + "' && document_id == '" + documentId + "'");
+        R<MutationResult> result =milvusClient.delete(deleteBuilder.build());
+        return result.getStatus() == R.Status.Success.getCode();
     }
 }

@@ -2,7 +2,6 @@ package com.ykx.backend.service.impl;
 
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.ykx.backend.ai.lc.ChatAssistant;
 import com.ykx.backend.common.BaseResponse;
 import com.ykx.backend.common.ResultUtils;
 import com.ykx.backend.common.UserContext;
@@ -25,6 +24,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import com.ykx.backend.agent.AgentToolCallContext;
+import com.ykx.backend.agent.ChatAssistant;
+
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;

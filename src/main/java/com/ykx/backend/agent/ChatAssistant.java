@@ -1,4 +1,4 @@
-package com.ykx.backend.ai.lc;
+package com.ykx.backend.agent;
 
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;

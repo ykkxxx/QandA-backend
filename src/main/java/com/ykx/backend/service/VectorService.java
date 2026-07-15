@@ -1,4 +1,7 @@
 package com.ykx.backend.service;
+
+import com.ykx.backend.model.vo.rag.DocumentVO;
+
 import java.util.List;
 import java.util.Map;
 
@@ -26,4 +29,13 @@ public interface VectorService {
      * 向量检索
      */
     List<Map<String, Object>> search(String userId, String question, int topK);
+    /**
+     * 查询入库的全部文档
+     */
+    List<DocumentVO> listUserDocuments(String userId);
+    /**
+     * 删除用户制定文档
+     */
+    boolean deleteUserDocument(String userId, String documentId);
+
 }

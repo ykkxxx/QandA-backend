@@ -42,7 +42,8 @@ public class WebConfig implements WebMvcConfigurer {
                         "/message/**",
                         "/vector/**",
                         "/rag/**",
-                        "/chat/**"
+                        "/chat/**",
+                        "/agent/**"
                 )
                 .excludePathPatterns(
                         "/user/login",

@@ -4,8 +4,12 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ykx.backend.config.VectorProperties;
+import com.ykx.backend.exception.BusinessException;
+import com.ykx.backend.exception.ErrorCode;
+import com.ykx.backend.model.vo.rag.DocumentVO;
 import com.ykx.backend.service.VectorService;
 import com.ykx.backend.vector.adapter.MilvusClientAdapter;
+import io.milvus.grpc.QueryResults;
 import io.milvus.grpc.SearchResultData;
 import io.milvus.grpc.SearchResults;
 import io.milvus.param.R;
@@ -23,6 +27,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -284,4 +289,156 @@ public class VectorServiceImpl implements VectorService {
         }
         return floatEmbedding;
     }
+
+    @Override
+    public List<DocumentVO> listUserDocuments(String userId) {
+
+        // 1. 参数校验
+        if (!StringUtils.hasText(userId)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "userId不能为空");
+        }
+
+        // 2. 根据用户id查询Milvus中的文档切片数据
+        R<QueryResults> results = milvusClientAdapter.queryDocument(
+                vectorProperties.getMilvus().getCollection(),
+                userId
+        );
+
+
+        // 3. 查询失败或者没有数据，返回空集合
+        if (results.getStatus() != R.Status.Success.getCode()
+                || results.getData() == null) {
+            return Collections.emptyList();
+        }
+
+        QueryResults queryResults = results.getData();
+
+        List<String> sourceFilesList = null;
+        List<String> documentIdsList = null;
+        List<String> upload_timeList = null;
+
+        // 4. 获取source_file字段
+        for (var fieldData : queryResults.getFieldsDataList()) {
+            String fieldName = fieldData.getFieldName();
+            List<String> dataList = fieldData.getScalars().getStringData().getDataList();
+            if ("source_file".equals(fieldName)) {
+                sourceFilesList = dataList;
+            }
+            if("document_id".equals(fieldName)){
+                documentIdsList = dataList;
+            }
+            if("upload_time".equals(fieldName)){
+                upload_timeList = dataList;
+            }
+            if(sourceFilesList != null && documentIdsList != null && upload_timeList != null){
+                break;
+            }
+        }
+
+        // 没有查询到文件字段
+        // 5. 完整长度校验：三组列表非空、长度完全一致
+        if (sourceFilesList == null || sourceFilesList.isEmpty()
+                || documentIdsList == null || documentIdsList.isEmpty()
+                || upload_timeList == null || upload_timeList.isEmpty()
+                || sourceFilesList.size() != documentIdsList.size()
+                || sourceFilesList.size() != upload_timeList.size()) {
+            return Collections.emptyList();
+        }
+        //去重逻辑
+        Map<String, Object[]> documentPropertyMap = new LinkedHashMap<>();
+        for (int i = 0; i < sourceFilesList.size(); i++) {
+            String docId = documentIdsList.get(i);
+            String fileName = sourceFilesList.get(i);
+            String uploadTime = upload_timeList.get(i);
+
+            if (documentPropertyMap.containsKey(docId)) {
+                // 已有记录，切片数量+1
+                Object[] arr = documentPropertyMap.get(docId);
+                arr[2] = (Integer) arr[2] + 1;
+            } else {
+                // 首次存入：文件名、上传时间、初始数量1
+                documentPropertyMap.put(docId, new Object[]{fileName, uploadTime, 1});
+            }
+        }
+
+
+        /*
+         * 6. 封装返回对象
+         */
+        List<DocumentVO> documentList = new ArrayList<>();
+
+
+        for (Map.Entry<String,Object[]> entry : documentPropertyMap.entrySet()) {
+
+
+            String documentId = entry.getKey();
+
+            Object[] infoArr = entry.getValue();
+            String documentName = (String) infoArr[0];
+            String uploadTime = (String) infoArr[1];
+            Integer chunkCount = (Integer) infoArr[2];
+
+            DocumentVO vo = new DocumentVO();
+
+
+            // 文档id（这里直接使用文件名，也可以改成数据库id）
+            vo.setDocumentId(documentId);
+
+
+            // 文档名称
+            vo.setDocumentName(documentName);
+
+            vo.setUploadTime(uploadTime);
+            // 根据后缀判断类型
+            if (documentName.toLowerCase().endsWith(".pdf")) {
+
+                vo.setDocumentType("pdf");
+
+            } else if (documentName.toLowerCase().endsWith(".txt")) {
+
+                vo.setDocumentType("txt");
+
+            } else {
+                vo.setDocumentType("unknown");
+            }
+
+
+            // 文档包含多少切片
+            vo.setChunkTotal(chunkCount);
+
+
+            documentList.add(vo);
+        }
+
+
+        return documentList;
+    }
+
+    @Override
+    public boolean deleteUserDocument(String userId, String documentId) {
+        //1.校验参数
+        if (!StringUtils.hasText(userId)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "userId不能为空");
+        }
+        if (!StringUtils.hasText(documentId)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "documentId不能为空");
+        }
+        //2.检查文档是否存在
+        List<DocumentVO> documents = listUserDocuments(userId);
+        boolean exists = documents.stream()
+                .anyMatch(doc -> documentId.equals(doc.getDocumentId()));
+
+        if (!exists) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "文档不存在");
+        }
+        //3.找到符合的userId 和documentId相同所有chunck
+        boolean success = milvusClientAdapter.deleteDocument(
+                vectorProperties.getMilvus().getCollection(),
+                userId,
+                documentId
+        );
+        // 4. 返回结果
+        return success;
+    }
+
 }
