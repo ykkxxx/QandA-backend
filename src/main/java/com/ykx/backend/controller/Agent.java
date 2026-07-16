@@ -1,5 +1,6 @@
 package com.ykx.backend.controller;
 
+import com.ykx.backend.aiutil.AmapApiUtil;
 import com.ykx.backend.common.BaseResponse;
 import com.ykx.backend.common.ResultUtils;
 import com.ykx.backend.common.UserContext;
@@ -16,6 +17,9 @@ public class Agent {
     @Resource
     private VectorService vectorService;
 
+    @Resource
+    private AmapApiUtil amapApiUtil;
+
     @GetMapping("/document/query")
     public List<DocumentVO> list(){
         String userId = UserContext.getUserId();
@@ -27,5 +31,13 @@ public class Agent {
         String userId = UserContext.getUserId();
         boolean success = vectorService.deleteUserDocument(userId, documentId);
         return ResultUtils.success(success);
+    }
+    @GetMapping("/weather")
+    public String getWeather(String city){
+        return amapApiUtil.getWeather(city);
+    }
+    @GetMapping("/food")
+    public String searchPoi(String city,String keyword,Integer radius){
+        return  amapApiUtil.searchPoiByAddress(city,keyword,1000);
     }
 }

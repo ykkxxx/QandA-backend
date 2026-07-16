@@ -54,6 +54,14 @@ app:
     document-rate-per-minute: 8
     document-upload-dir: uploads/kb-docs
     document-max-bytes: 10485760
+# 高德地图 Web服务API 配置
+amap:
+  # 你自己申请的Web服务Key
+  api-key: "你的32位高德Web服务Key"
+  # 接口基础地址，固定无需修改
+  base-url: "https://restapi.amap.com"
+  # 可选：安全密钥（部分接口需要，控制台显示密钥获取）
+  secret: "你的安全密钥，没有可不填"
 # AI大模型配置
 deepseek:
   api-key: yourApiKey

@@ -99,9 +99,10 @@ public class ChatSessionsServiceImpl extends ServiceImpl<ChatSessionsMapper, Cha
 
     @Override
     public BaseResponse<Boolean> clearAllSessions() {
-        // 1. 获取当前登录用户ID
         String currentUserId = UserContext.getUserId();
-        // 2. 条件：只删除当前用户的所有会话
+        LambdaQueryWrapper<ChatMessages> msgWrapper = new LambdaQueryWrapper<>();
+        msgWrapper.eq(ChatMessages::getUser_id, currentUserId);
+        chatMessagesMapper.delete(msgWrapper);
         LambdaQueryWrapper<ChatSessions> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(ChatSessions::getUser_id, currentUserId);
         boolean removed = this.remove(wrapper);
@@ -159,23 +160,20 @@ public class ChatSessionsServiceImpl extends ServiceImpl<ChatSessionsMapper, Cha
 
     @Override
     public BaseResponse<Void> deleteSession(String session_id) {
-        // 1. 校验 sessionId 非空
         if (StrUtil.isBlank(session_id)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "会话ID不能为空");
         }
-        // 2. 获取当前登录用户ID
         String currentUserId = UserContext.getUserId();
-        // 3. 查询会话是否存在
         ChatSessions chatSession = chatSessionsMapper.selectById(session_id);
         if (chatSession == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "会话不存在");
         }
-        // 4. 权限校验：只能删除自己的会话
         if (!currentUserId.equals(chatSession.getUser_id())) {
             throw new BusinessException(ErrorCode.FORBIDDEN_ERROR, "无权限删除他人会话");
         }
-        // 5. 删除会话
-        // 数据库外键 ON DELETE CASCADE → 自动级联删除该会话下所有 chat_messages
+        LambdaQueryWrapper<ChatMessages> msgWrapper = new LambdaQueryWrapper<>();
+        msgWrapper.eq(ChatMessages::getSession_id, session_id);
+        chatMessagesMapper.delete(msgWrapper);
         chatSessionsMapper.deleteById(session_id);
         return ResultUtils.success(null);
     }

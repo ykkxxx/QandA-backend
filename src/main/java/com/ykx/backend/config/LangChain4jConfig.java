@@ -3,7 +3,9 @@ package com.ykx.backend.config;
 import com.ykx.backend.agent.ChatAssistant;
 import com.ykx.backend.agent.tools.DocumentManagementTools;
 import com.ykx.backend.agent.tools.KnowledgeTools;
+import com.ykx.backend.agent.tools.LocationTools;
 
+import com.ykx.backend.agent.tools.SessionTools;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.service.AiServices;
@@ -33,11 +35,13 @@ public class LangChain4jConfig {
     }
 
     @Bean
-    public ChatAssistant chatAssistant(ChatLanguageModel chatLanguageModel, KnowledgeTools knowledgeTools, DocumentManagementTools documentManagementTools) {
+    public ChatAssistant chatAssistant(ChatLanguageModel chatLanguageModel, KnowledgeTools knowledgeTools, DocumentManagementTools documentManagementTools, LocationTools locationTools, SessionTools sessionTools) {
         return AiServices.builder(ChatAssistant.class)
                 .chatLanguageModel(chatLanguageModel)
                 .tools(knowledgeTools)
                 .tools(documentManagementTools)
+                .tools(locationTools)
+                .tools(sessionTools)
                 .build();
     }
 

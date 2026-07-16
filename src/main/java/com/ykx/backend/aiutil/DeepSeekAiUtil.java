@@ -1,4 +1,4 @@
-package com.ykx.backend.ai;
+package com.ykx.backend.aiutil;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.http.HttpResponse;
