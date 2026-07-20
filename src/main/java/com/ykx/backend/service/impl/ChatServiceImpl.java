@@ -1,7 +1,9 @@
 package com.ykx.backend.service.impl;
 
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.ykx.backend.agent.ReflectionService;
 import com.ykx.backend.common.BaseResponse;
 import com.ykx.backend.common.ResultUtils;
 import com.ykx.backend.common.UserContext;
@@ -25,6 +27,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import com.ykx.backend.agent.AgentToolCallContext;
 import com.ykx.backend.agent.ChatAssistant;
+import com.ykx.backend.agent.TaskExecutionService;
+import com.ykx.backend.agent.tools.TaskPlanner;
 
 import java.time.LocalDateTime;
 import java.util.Collections;
@@ -42,6 +46,9 @@ public class ChatServiceImpl implements ChatService {
     private final ChatAssistant chatAssistant;
     private final DeepSeekAiProperties deepSeekAiProperties;
     private final AgentProperties agentProperties;
+    private final TaskPlanner taskPlanner;
+    private final TaskExecutionService taskExecutionService;
+    private final ReflectionService reflectionService;  // 新增
     @Override
     @Transactional(rollbackFor = Exception.class)
     public BaseResponse<MessageSendResponseVO> sendMessage(MessageSendRequestDTO dto) {
@@ -75,20 +82,46 @@ public class ChatServiceImpl implements ChatService {
         }
 
 
-        LambdaQueryWrapper<ChatMessages> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(ChatMessages::getSession_id, sessionId);
-        wrapper.orderByDesc(ChatMessages::getCreated_at);
-        wrapper.last("limit " + Math.max(1, agentProperties.getMaxHistoryMessages()));
-        List<ChatMessages> historyList = chatMessagesMapper.selectList(wrapper);
-        Collections.reverse(historyList);
-        //将list按时间降序 按role 拆解成user 和assistant
-        String historyBlock = buildHistoryBlock(historyList);
-        String agentPayload = buildAgentPayload(historyBlock, query.trim(), userId);
-
+//        LambdaQueryWrapper<ChatMessages> wrapper = new LambdaQueryWrapper<>();
+//        wrapper.eq(ChatMessages::getSession_id, sessionId);
+//        wrapper.orderByDesc(ChatMessages::getCreated_at);
+//        wrapper.last("limit " + Math.max(1, agentProperties.getMaxHistoryMessages()));
+//        List<ChatMessages> historyList = chatMessagesMapper.selectList(wrapper);
+//        Collections.reverse(historyList);
+//        //将list按时间降序 按role 拆解成user 和assistant
+//        String historyBlock = buildHistoryBlock(historyList);
+//        String agentPayload = buildAgentPayload(historyBlock, query.trim(), userId);
+        String agentPayload = buildAgentPayload(query.trim(), userId);
         String aiAnswer;
         AgentToolCallContext.init(userId,sessionId);
         try {
-            aiAnswer = chatAssistant.reply(agentPayload);
+            String planJson = taskPlanner.planTask(query);
+            log.info("Task plan: {}", planJson);
+
+            String taskResults = taskExecutionService.executeAllTasks(planJson);
+            // 反思评估（新增）
+            ReflectionService.ReflectionResult reflectionResult = reflectionService.reflect(query, planJson, taskResults);
+            log.info("Reflection score: {}, needs correction: {}", reflectionResult.getScore(), reflectionResult.isNeedsCorrection());
+
+// 如果需要修正，执行修正（新增）
+            if (reflectionResult.isNeedsCorrection() && reflectionResult.getCorrectionPlan() != null && !reflectionResult.getCorrectionPlan().isEmpty()) {
+                // 将修正计划包装成 {"tasks": [...]} 格式
+                cn.hutool.json.JSONObject correctionPlanWrapper = cn.hutool.json.JSONUtil.createObj();
+                correctionPlanWrapper.put("tasks", reflectionResult.getCorrectionPlan());
+                String correctionResults = taskExecutionService.executeAllTasks(correctionPlanWrapper.toString());
+                taskResults = taskResults + "\n\n🔄 修正结果：\n" + correctionResults;
+            }
+            if (taskResults.isEmpty()) {
+                aiAnswer = chatAssistant.reply(sessionId, agentPayload);
+            } else {
+                String webSearchResults = extractWebSearchResults(taskResults);
+                if (StrUtil.isNotBlank(webSearchResults)) {
+                    String enhancedPayload = buildEnhancedAgentPayload(query, userId, webSearchResults);
+                    aiAnswer = chatAssistant.reply(sessionId, enhancedPayload);
+                } else {
+                    aiAnswer = taskExecutionService.summarize(planJson, taskResults);
+                }
+            }
         } catch (Exception e) {
             log.error("大模型调用失败", e);
             throw new BusinessException(ErrorCode.OPERATION_ERROR, friendlyLlmMessage(e));
@@ -154,7 +187,7 @@ public class ChatServiceImpl implements ChatService {
         return sb.toString().trim();
     }
     //把【历史对话 + 检索到的知识库 + 用户当前问题】拼成一段完整的提示词，发给 AI 大模型！
-    private String buildAgentPayload(String historyBlock, String query, String userId) {
+    private String buildAgentPayload(String query, String userId) {
         String ragBlock;
         try {
             RagContextVO rag = ragService.buildContext(userId, query);
@@ -170,15 +203,59 @@ public class ChatServiceImpl implements ChatService {
         }
 
         return """
-                【对话历史】
-                %s
-
                 【预检索知识库】
                 %s
 
                 【当前用户问题】
                 %s
-                """.formatted(historyBlock, ragBlock, query);
+                """.formatted(ragBlock, query);
+    }
+
+    private String buildEnhancedAgentPayload(String query, String userId, String webSearchResults) {
+        String ragBlock;
+        try {
+            RagContextVO rag = ragService.buildEnhancedContext(userId, query, webSearchResults);
+            if (StringUtils.hasText(rag.getContextText())) {
+                ragBlock = rag.getContextText();
+            } else {
+                ragBlock = "（预检索：知识库暂无匹配片段。网络搜索结果已作为参考资料。）";
+            }
+        } catch (Exception e) {
+            log.warn("RAG 增强预检索失败: {}", e.getMessage());
+            ragBlock = webSearchResults;
+        }
+
+        return """
+                【预检索知识库】
+                %s
+
+                【网络搜索结果】
+                %s
+
+                【当前用户问题】
+                %s
+                """.formatted(ragBlock, webSearchResults, query);
+    }
+
+    private String extractWebSearchResults(String taskResults) {
+        if (StrUtil.isBlank(taskResults)) {
+            return "";
+        }
+        
+        int startIdx = taskResults.indexOf("🔍 搜索结果");
+        if (startIdx == -1) {
+            return "";
+        }
+        
+        int endIdx = taskResults.indexOf("\n\n✓ ", startIdx);
+        if (endIdx == -1) {
+            endIdx = taskResults.indexOf("\n\n🔄 ", startIdx);
+        }
+        if (endIdx == -1) {
+            endIdx = taskResults.length();
+        }
+        
+        return taskResults.substring(startIdx, endIdx).trim();
     }
 
     private static String summarizeException(Exception e) {

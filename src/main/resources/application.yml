@@ -67,6 +67,10 @@ deepseek:
   api-key: yourApiKey
   api-url: https://api.deepseek.com/v1/chat/completions
   model: deepseek-chat
+bocha:
+  api-key: XXXX
+  api-url: https://api.bochaai.com/v1/web-search
+  count: 5
 server:
   port: 8123
   servlet:
@@ -74,6 +78,8 @@ server:
 spring:
   application:
     name: projectTest
+  profiles:
+    active: local
   mvc:
     # 关闭后 multipart 文件上传更稳定（避免 FormContentFilter 与 multipart 解析顺序问题）
     formcontent:

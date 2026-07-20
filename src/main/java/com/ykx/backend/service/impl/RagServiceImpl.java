@@ -123,6 +123,31 @@ public class RagServiceImpl implements RagService {
     }
 
     /**
+     * 构建增强版 RAG 上下文（包含网络搜索结果）
+     */
+    @Override
+    public RagContextVO buildEnhancedContext(String userId, String question, String webSearchResults) {
+        RagContextVO vo = buildContext(userId, question);
+        
+        if (StrUtil.isNotBlank(webSearchResults)) {
+            vo.setWebSearchResults(webSearchResults);
+            
+            String enhancedContextText = vo.getContextText();
+            if (StrUtil.isBlank(enhancedContextText)) {
+                enhancedContextText = webSearchResults;
+            } else {
+                enhancedContextText = vo.getContextText() + "\n\n" + webSearchResults;
+            }
+            vo.setContextText(enhancedContextText);
+            
+            String enhancedLlmContent = RagPromptBuilder.buildEnhancedRagUserContent(question.trim(), vo.getContextText());
+            vo.setLlmUserContent(enhancedLlmContent);
+        }
+        
+        return vo;
+    }
+
+    /**
      * 从向量检索结果中提取距离分数（score）
      */
     private static double extractVectorDistance(Map<String, Object> h) {

@@ -19,4 +19,7 @@ public class RagContextVO {
 
     /** 建议作为大模型「用户消息」的完整正文（含答题约束 + 问题 + 参考资料） */
     private String llmUserContent;
+
+    /** 网络搜索结果（用于增强 RAG 上下文） */
+    private String webSearchResults;
 }

@@ -108,4 +108,23 @@ public final class RagPromptBuilder {
         }
         return sb.toString();
     }
+
+    /**
+     * 构造增强版用户侧正文：问题 + 参考资料（含网络搜索）。
+     */
+    public static String buildEnhancedRagUserContent(String question, String retrievedContext) {
+        String q = question == null ? "" : question.trim();
+        String ctx = retrievedContext == null ? "" : retrievedContext.trim();
+        StringBuilder sb = new StringBuilder();
+        sb.append("请综合下方「参考资料」（含个人知识库和网络搜索结果）回答用户问题。\n");
+        sb.append("优先参考网络搜索结果获取最新信息，结合个人知识库提供更全面的回答。\n");
+        sb.append("若资料中没有答案，请明确说明无法从资料中得出，不要编造。\n\n");
+        sb.append("【用户问题】\n").append(q).append("\n\n");
+        if (StringUtils.hasText(ctx)) {
+            sb.append("【参考资料】\n").append(ctx);
+        } else {
+            sb.append("【参考资料】\n（无匹配片段）");
+        }
+        return sb.toString();
+    }
 }
